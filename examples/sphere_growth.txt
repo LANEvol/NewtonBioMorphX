@@ -1,0 +1,69 @@
+inputGeom Sphere
+coordSystem Spherical
+nLayers 3
+Ri 25
+H 2.5 1 2.5 
+spacing 0.5 1 0.5 
+nFibers 0
+globalTime 1465.76
+outputFileName ./output.vtk
+maxIter 200000
+timeThreshold 1e+07
+saveTime 100000
+frames 853
+timeFactor 0.421875
+minTimeFactor 1e-06
+saveVTK 0
+savePLY 0
+savePNG 0
+showBasis 1
+showEdges 0
+showOrtho 1
+showFilamentFibers 0 0 0 0 0 0 0 0
+scaleFilamentFibers 500 500 500 1 1 1 1 1
+searchIter 100
+kinEnergyTol 1e-06
+simIter 42684
+meshVisState 2
+selectedLayer 2
+sliceDir 0
+sliceMag 0.37 0.5 0.5
+visibleData 0
+sUpdate 50
+pert 0.1
+bkgColor 0.45 0.45 0.45 1
+trackball_angle -0.146497 -0.928633 0.238528 -0.243482
+contactFact 500
+contactFactVel 0
+repThickness 0.3
+bcTypes 0 0 0 0 0 0
+Layer 0
+	isRigid 0
+	nu 0.3
+	E 1.0
+	visc 0.01
+	grRate1_Ref 0.0
+	grRate2_Ref 0.001
+	grRate3_Ref 0.001
+	plasticity 0.0
+	actin_Ref Tensor(0, 0, 0)
+Layer 1
+	isRigid 1
+	nu 0.35
+	E 1.0
+	visc 0.01
+	grRate1_Ref 0.0
+	grRate2_Ref 0.0
+	grRate3_Ref 0.0
+	plasticity 0.0
+	actin_Ref Tensor(0, 0, 0)
+Layer 2
+	isRigid 0
+	nu 0.4
+	E 1.0
+	visc 0.01
+	grRate1_Ref 0.0
+	grRate2_Ref 0.001
+	grRate3_Ref 0.001
+	plasticity 0.0
+	actin_Ref Tensor(0, 0, 0)

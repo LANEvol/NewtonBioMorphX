@@ -1,0 +1,54 @@
+inputGeom Torus
+coordSystem Toroidal
+nLayers 1
+R25
+Ri10
+H 5 
+spacing 1 
+nFibers 2
+globalTime 13155.4
+outputFileName ./../output.vtk
+maxIter 200000
+timeThreshold 1e+07
+saveTime 100000
+frames 6797
+timeFactor 0.5625
+minTimeFactor 1e-06
+saveVTK 0
+savePLY 0
+savePNG 0
+showBasis 1
+showEdges 0
+showOrtho 1
+showFilamentFibers 0 0 0 0 0 0 0 0
+scaleFilamentFibers 500 500 500 1 1 1 1 1
+searchIter 400
+kinEnergyTol 1e-06
+simIter 391545
+meshVisState 0
+selectedLayer 0
+sliceDir 0
+sliceMag 0.5 0.5 0.5
+visibleData 0
+sUpdate 50
+pert 0.1
+bkgColor 0.45 0.45 0.45 1
+trackball_angle 0.528723 0.846953 0.0179156 0.052929
+contactFact 500
+contactFactVel 0
+repThickness 0.3
+bcTypes 1 0 0 0 0 0
+Layer 0
+	isRigid 0
+	nu 0.25
+	E 1.0
+	visc 0.1
+	grRate1_Ref 0.0
+	grRate2_Ref 0.001 * (2.0) * exp(-0.001*t)
+	grRate3_Ref 0.001 * (2.0) * exp(-0.001*t)
+	plasticity 0.0
+	k1 1
+	k2 0.0
+	fiber1_Ref Tensor(0, 0, 1)*0.25
+	fiber2_Ref Tensor(0, 1, 0)*0.25
+	actin_Ref Tensor(0, 0, 0)

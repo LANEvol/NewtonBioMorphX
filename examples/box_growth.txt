@@ -1,0 +1,47 @@
+inputGeom Box
+coordSystem Cartesian
+nLayers 1
+L 50
+W 50
+H 5 
+spacing 1 
+nFibers 0
+globalTime 0
+outputFileName ./output.vtk
+maxIter 200000
+timeThreshold 1e+07
+saveTime 100000
+frames 0
+timeFactor 1
+minTimeFactor 1e-06
+saveVTK 0
+savePLY 0
+saveMP4 0
+showBasis 1
+showEdges 0
+showOrtho 0
+searchIter 1000
+kinEnergyTol 1e-06
+simIter 0
+meshVisState 0
+selectedLayer 0
+sliceDir 0
+sliceMag 0.5 0.5 0.5
+visibleData 0
+sUpdate 50
+pert 0.1
+bkgColor 0.45 0.45 0.45 1
+trackball_angle 0 0 0 1
+contactFact 500
+contactFactVel 0
+repThickness 0.3
+bcTypes 2 2 2 2 1 0
+Layer 0
+	nu 0.35
+	E 1.0
+	visc 1.0
+	grRate1_Ref 0.001
+	grRate2_Ref 0.001
+	grRate3_Ref 0.0
+	plasticity 0.0
+	actin_Ref Tensor(0, 0, 0)
