@@ -176,22 +176,29 @@ bool inline ImGuiMessage(const bool& cond, const std::string& title, const std::
 }
 
 void getAverageAndSTD(float* avgSTD, const float *data, int N) {
-    float wSum = 1e-10f;
-    avgSTD[0] = 1e-10f;
-    avgSTD[1] = 1e-10f;
+    int wSum = 0;
+    avgSTD[0] = 0.0f;
+    avgSTD[1] = 0.0f;
     for (int i=0; i<N; i++) {
         if (std::isfinite(data[i])) {
             avgSTD[0] += data[i];
-            wSum += 1.0;
+            wSum += 1;
         }
     }
-    avgSTD[0] = avgSTD[0] / wSum;
-    for (int i=0; i<N; i++) {
-        if (std::isfinite(data[i]))
+    if (wSum>0) {
+        avgSTD[0] = avgSTD[0] / Float(wSum);
+        for (int i=0; i<N; i++) {
+	    if (std::isfinite(data[i]))
             avgSTD[1] += (data[i] - avgSTD[0]) * (data[i] - avgSTD[0]);
+        }
+        avgSTD[1] = sqrt(avgSTD[1] / (Float(wSum)-1.0));
+    } else {
+    	avgSTD[0] = NAN;
+    	avgSTD[1] = NAN;
     }
-    avgSTD[1] = sqrt(avgSTD[1] / (wSum-1.0));
-    //return avgSTD;
+    if (wSum<2) {
+    	avgSTD[1] = NAN;        
+    }	    
 }
 
 #define IMGUI_DISABLE_WIDGET {ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true); ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);}
@@ -1016,7 +1023,6 @@ int main(int argc, char** argv) {
                     float avgSTD[2] = {INFINITY, INFINITY};
                     getAverageAndSTD(avgSTD, enDiff, averageInterval);
                     kinEnergy = avgSTD[1];
-                    std::cout << "Average Energy: " << avgSTD[0] << "  Average Divergence: " << avgSTD[1] << std::endl;
                 }
 
                 if (simDiverged) {
@@ -1034,7 +1040,7 @@ int main(int argc, char** argv) {
                     _LAUNCH(mesh.ntri, 128, read_boundary_faces) (dataPtr, spacing, mesh.ntri);
                     octreeSearch(data, minPos - Vector(spacing * 10.0f), maxPos + Vector(spacing * 10.0f));
                     potEnergy = 0.0;
-                    kinEnergy = 0;
+                    kinEnergy = NAN;
                     for (int i=0; i<averageInterval; i++)
                         enDiff[i] = INFINITY;
                     renderNewData = true;
@@ -1891,7 +1897,7 @@ int main(int argc, char** argv) {
                 ImGui::InputInt("Maximum iteration", &maxIterInt);
                 maxIter = std::max(maxIterInt, 0);
                 float fkinEnergyTol = kinEnergyTol;
-                ImGui::InputFloat("Minimum ΔE", &fkinEnergyTol, 1.0f, 1e-4f, "%.5f");
+                ImGui::InputFloat("Minimum ΔE", &fkinEnergyTol, 1.0f, 1e-4f, "%.5e");
                 kinEnergyTol = std::max(fkinEnergyTol, 0.0f);
                 ImGui::InputFloat("Contact weight", &contactFact, 10.0f, 0.05f, "%.2f");
                 contactFact = std::max(contactFact, 0.0f);
@@ -2272,7 +2278,6 @@ int main(int argc, char** argv) {
                     } else
                         _ERROR_MESSAGE("Input mesh in not a vtk file !");
                 } else {
-                    // grid.init(domainSize[0],domainSize[1],domainSize[2],domainDx[0],domainDx[1],domainDx[2],mesh);
                     init();
                 }
                 clockTime = 0.0;
