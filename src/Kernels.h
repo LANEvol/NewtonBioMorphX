@@ -36,8 +36,10 @@ namespace LagSol {
         };
     };
 
-    extern __managed__ Parameters gP;
     extern NVRTCKernal compute_force_nvrtc;
+    extern NVRTCKernal compute_orthogonal_basis_nvrtc;
+    extern NVRTCKernal compute_bids_nvrtc;
+    extern NVRTCKernal enforceBC_nvrtc;
     extern NVRTCKernal compute_critical_timestep_nvrtc;
     extern NVRTCKernal compute_for_vis_nvrtc;
 

@@ -17,9 +17,11 @@
 #include "MyGUI.h"
 
 namespace LagSol {
-    __managed__ Parameters gP;
 
     NVRTCKernal compute_force_nvrtc("compute_force_nvrtc");
+    NVRTCKernal compute_orthogonal_basis_nvrtc("compute_orthogonal_basis_nvrtc");
+    NVRTCKernal compute_bids_nvrtc("compute_bids_nvrtc");
+    NVRTCKernal enforceBC_nvrtc("enforceBC_nvrtc");
     NVRTCKernal compute_critical_timestep_nvrtc("compute_critical_timestep_nvrtc");
     NVRTCKernal compute_for_vis_nvrtc("compute_for_vis_nvrtc");
 
@@ -189,10 +191,10 @@ namespace LagSol {
 
             int layer = data->layer[i] - 1;
 
-            atomicOr(&data->isRigid[a], int(gP.isRigidLayer[layer]));
-            atomicOr(&data->isRigid[b], int(gP.isRigidLayer[layer]));
-            atomicOr(&data->isRigid[c], int(gP.isRigidLayer[layer]));
-            atomicOr(&data->isRigid[d], int(gP.isRigidLayer[layer]));
+            // atomicOr(&data->isRigid[a], int(gP.isRigidLayer[layer]));
+            // atomicOr(&data->isRigid[b], int(gP.isRigidLayer[layer]));
+            // atomicOr(&data->isRigid[c], int(gP.isRigidLayer[layer]));
+            // atomicOr(&data->isRigid[d], int(gP.isRigidLayer[layer]));
         }
     }
 
@@ -247,331 +249,331 @@ namespace LagSol {
         }
     }
 
-    __global__ void compute_orthogonal_basis(DeviceDataPtrManaged *data, int ntet) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        const Float hapex = gP.apex*0.5;
-        if (i < ntet) {
-            // Cartesian axis aligned
-            data->R[i][0] = 1.0f;
-            data->R[i][1] = 0.0f;
-            data->R[i][2] = 0.0f;
-            data->R[i][3] = 0.0f;
-            data->R[i][4] = 1.0f;
-            data->R[i][5] = 0.0f;
-            data->R[i][6] = 0.0f;
-            data->R[i][7] = 0.0f;
-            data->R[i][8] = 1.0f;
-
-            int a = data->tet[i].x;
-            int b = data->tet[i].y;
-            int c = data->tet[i].z;
-            int d = data->tet[i].w;
-
-            const Vector Xa = data->posRef[a];
-            const Vector Xb = data->posRef[b];
-            const Vector Xc = data->posRef[c];
-            const Vector Xd = data->posRef[d];
-
-            int layer = data->layer[i] - 1;
-            if        (gP.grCoordType == CoordinateSystem::NormalTangent) {  // Normal-Tangent
-                Vector n = data->normalTetra[i]/data->normalTetra[i].mag();
-                Vector t1 = (Xa-Xb).cross(n);
-                Vector t2 = (Xa-Xc).cross(n);
-                Vector t = (t1.mag() > t2.mag()) ? t1/t1.mag() : t2/t2.mag();
-                Vector b = n.cross(t)/n.cross(t).mag();
-                data->R[i][0] = n[0];
-                data->R[i][1] = t[0];
-                data->R[i][2] = b[0];
-                data->R[i][3] = n[1];
-                data->R[i][4] = t[1];
-                data->R[i][5] = b[1];
-                data->R[i][6] = n[2];
-                data->R[i][7] = t[2];
-                data->R[i][8] = b[2];
-            } else if (gP.grCoordType == CoordinateSystem::CylindricalZ) {  // Cylindrical Z
-                Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
-                Float theta = atan2(tetCenter[1],tetCenter[0]);
-                data->R[i][0] = cos(theta);
-                data->R[i][1] =-sin(theta);
-                data->R[i][2] = 0.0;
-                data->R[i][3] = sin(theta);;
-                data->R[i][4] = cos(theta);;
-                data->R[i][5] = 0.0;
-                data->R[i][6] = 0.0;
-                data->R[i][7] = 0.0;
-                data->R[i][8] = 1.0;
-            } else if (gP.grCoordType == CoordinateSystem::CylindricalY) {  // Cylindrical Y
-                Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
-                Float theta = atan2(tetCenter[2],tetCenter[0]);
-                data->R[i][0] = cos(theta);
-                data->R[i][1] = 0.0;
-                data->R[i][2] =-sin(theta);
-                data->R[i][3] = 0.0;
-                data->R[i][4] = 1.0;
-                data->R[i][5] = 0.0;
-                data->R[i][6] = sin(theta);
-                data->R[i][7] = 0.0;
-                data->R[i][8] = cos(theta);
-            } else if (gP.grCoordType == CoordinateSystem::ConeAdapted) {  // Cylindrical Y
-                Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
-                Float theta = atan2(tetCenter[2],tetCenter[0]);
-                data->R[i][0] = cos(hapex) * cos(theta);
-                data->R[i][1] =-sin(hapex) * cos(theta);
-                data->R[i][2] =-sin(theta);
-                data->R[i][3] = sin(hapex);
-                data->R[i][4] = cos(hapex);
-                data->R[i][5] = 0.0;
-                data->R[i][6] = cos(hapex) * sin(theta);
-                data->R[i][7] =-sin(hapex) * sin(theta);
-                data->R[i][8] = cos(theta);
-            } else if (gP.grCoordType == CoordinateSystem::Spherical) {  // Spherical
-                Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
-                Float phi = atan2(tetCenter[1],tetCenter[0]);
-                Float theta = atan2(sqrt(tetCenter[0]*tetCenter[0]+tetCenter[1]*tetCenter[1]),tetCenter[2]);
-                data->R[i][0] = sin(theta)*cos(phi);
-                data->R[i][1] = cos(theta)*cos(phi);
-                data->R[i][2] =-sin(phi);
-                data->R[i][3] = sin(theta)*sin(phi);
-                data->R[i][4] = cos(theta)*sin(phi);
-                data->R[i][5] = cos(phi);
-                data->R[i][6] = cos(theta);
-                data->R[i][7] =-sin(theta);
-                data->R[i][8] = 0.0;
-            } else if (gP.grCoordType == CoordinateSystem::Toroidal) {  // Toruidal
-                Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25f;
-                Float phi = atan2(tetCenter[1],tetCenter[0]);
-                Float theta = atan2(sqrt(tetCenter[0]*tetCenter[0]+tetCenter[1]*tetCenter[1]) - gP.RTorus, tetCenter[2]);
-                data->R[i][0] = sin(theta)*cos(phi);
-                data->R[i][1] = cos(theta)*cos(phi);
-                data->R[i][2] =-sin(phi);
-                data->R[i][3] = sin(theta)*sin(phi);
-                data->R[i][4] = cos(theta)*sin(phi);
-                data->R[i][5] = cos(phi);
-                data->R[i][6] = cos(theta);
-                data->R[i][7] =-sin(theta);
-                data->R[i][8] = 0.0;
-            }
-        }
-    }
-
-    __global__ void compute_bids(DeviceDataPtrManaged *data, const Float tol, int nver) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        if (i < nver) {
-            uint bcStat = 0u;
-            const uint ax0Constraint = 1u;
-            const uint ax1Constraint = 2u;
-            const uint ax2Constraint = 4u;
-
-            if (gP.grCoordType == CoordinateSystem::NormalTangent) {
-//TODO : It should be clarified more. Maybe, I consider this type of coordination only for the defined boundary
-                const uint xMinState = fabs(data->posRef[i][0] - gP.posRefMin[0]) < tol;
-                const uint xMaxState = fabs(data->posRef[i][0] - gP.posRefMax[0]) < tol;
-                const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
-                const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
-                const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
-                const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis2==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis2==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
-                bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
-                bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
-                bcStat |= (gP.bcTypeMinAxis2==2) * zMinState * ax2Constraint;
-                bcStat |= (gP.bcTypeMaxAxis2==2) * zMaxState * ax2Constraint;
-            } if (gP.grCoordType == CoordinateSystem::Cartesian) {
-                const uint xMinState = fabs(data->posRef[i][0] - gP.posRefMin[0]) < tol;
-                const uint xMaxState = fabs(data->posRef[i][0] - gP.posRefMax[0]) < tol;
-                const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
-                const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
-                const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
-                const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis2==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis2==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
-                bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
-                bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
-                bcStat |= (gP.bcTypeMinAxis2==2) * zMinState * ax2Constraint;
-                bcStat |= (gP.bcTypeMaxAxis2==2) * zMaxState * ax2Constraint;
-            } if (gP.grCoordType == CoordinateSystem::CylindricalZ) {
-                const Vector r(data->posRef[i][0], data->posRef[i][1], 0.0);
-                const uint rMinState = fabs(r.mag() - gP.rRefMin) < tol;
-                const uint rMaxState = fabs(r.mag() - gP.rRefMax) < tol;
-                const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
-                const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis1==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis1==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
-                bcStat |= (gP.bcTypeMinAxis1==2) * zMinState * ax1Constraint;
-                bcStat |= (gP.bcTypeMaxAxis1==2) * zMaxState * ax1Constraint;
-            } if (gP.grCoordType == CoordinateSystem::CylindricalY) {
-                const Vector r(data->posRef[i][0], 0.0, data->posRef[i][2]);
-                const uint xMinState = fabs(r.mag() - gP.rRefMin) < tol;
-                const uint xMaxState = fabs(r.mag() - gP.rRefMax) < tol;
-                const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
-                const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
-                bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
-                bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
-
-            } if (gP.grCoordType == CoordinateSystem::ConeAdapted) {
-                const Vector r(data->posRef[i][0], 0.0, data->posRef[i][2]);
-                Float rMax = max(gP.rRefMax - data->posRef[i][1] * tan(gP.apex*0.5),0.0);
-                Float rMin = max(gP.rRefMin - data->posRef[i][1] * tan(gP.apex*0.5),0.0);
-                const uint rMinState = fabs(r.mag() - rMin) < tol;
-                const uint rMaxState = fabs(r.mag() - rMax) < tol;
-                const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
-                const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
-                bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
-                bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
-
-            } else if (gP.grCoordType == CoordinateSystem::Spherical) {
-                const uint rMinState = fabs(data->posRef[i].mag() - gP.rRefMin) < tol;
-                const uint rMaxState = fabs(data->posRef[i].mag() - gP.rRefMax) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-
-                bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
-            } else if (gP.grCoordType == CoordinateSystem::Toroidal) {
-                const Float x = data->posRef[i][0];
-                const Float y = data->posRef[i][1];
-                const Float z = data->posRef[i][2];
-                const Float r = sqrt((sqrt(x*x + y*y)-gP.RTorus)*(sqrt(x*x + y*y)-gP.RTorus)+z*z);
-                const uint rMinState = fabs(r - gP.rRefMin) < tol;
-                const uint rMaxState = fabs(r - gP.rRefMax) < tol;
-
-                bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
-                bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
-                bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
-            }
-
-            data->bcState[i].x = bcStat;
-        }
-    }
-
-    __global__ void enforceBC(DeviceDataPtrManaged *data, int nver) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-        if (i < nver) {
-            Tensor proj(0);
-            if (gP.grCoordType == CoordinateSystem::NormalTangent) {
-                //TODO : It should be clarified more
-                const Tensor xxt(1.0,0.0,0.0);
-                const Tensor yyt(0.0,1.0,0.0);
-                const Tensor zzt(0.0,0.0,1.0);
-                proj = xxt * Float((data->bcState[i].x & 1u) > 0) +
-                       yyt * Float((data->bcState[i].x & 2u) > 0) +
-                       zzt * Float((data->bcState[i].x & 4u) > 0);
-            } else if (gP.grCoordType == CoordinateSystem::Cartesian) {
-                const Tensor xxt(1.0,0.0,0.0);
-                const Tensor yyt(0.0,1.0,0.0);
-                const Tensor zzt(0.0,0.0,1.0);
-                proj = xxt * Float((data->bcState[i].x & 1u) > 0) +
-                       yyt * Float((data->bcState[i].x & 2u) > 0) +
-                       zzt * Float((data->bcState[i].x & 4u) > 0);
-            } else if (gP.grCoordType == CoordinateSystem::CylindricalZ) {
-                const Vector r = Vector(data->pos[i][0], data->pos[i][1],0.0).safe_normal();
-                const Tensor rrt(r);
-                const Tensor zzt(0.0,0.0,1.0);
-                const Tensor ppt = Tensor::eye() - rrt - zzt;
-                proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
-                       zzt * Float((data->bcState[i].x & 2u) > 0) +
-                       ppt * Float((data->bcState[i].x & 4u) > 0);
-            } else if (gP.grCoordType == CoordinateSystem::CylindricalY) {
-                const Vector r = Vector(data->pos[i][0],0.0, data->pos[i][2]).safe_normal();
-                const Tensor rrt(r);
-                const Tensor yyt(0.0,1.0,0.0);
-                const Tensor ppt = Tensor::eye() - rrt - yyt;
-                proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
-                       yyt * Float((data->bcState[i].x & 2u) > 0) +
-                       ppt * Float((data->bcState[i].x & 4u) > 0);
-
-            } else if (gP.grCoordType == CoordinateSystem::ConeAdapted) {
-                const Float x = data->pos[i][0];
-                const Float z = data->pos[i][2];
-                const Float theta = atan2(z, x);
-                const Float hapex = gP.apex*0.5;
-                const Vector n = Vector(cos(hapex) * cos(theta),
-                                        sin(hapex),
-                                        cos(hapex) * sin(theta));
-                const Vector a = Vector(-sin(hapex) * cos(theta),
-                                        cos(hapex),
-                                        -sin(hapex) * sin(theta));
-
-                const Tensor yyt(0.0,1.0,0.0);
-                const Tensor nnt(n);
-                Tensor aat(a);
-
-                if ((data->bcState[i].x & 1u) == 0 && (data->bcState[i].x & 2u) > 0 && (data->bcState[i].x & 4u) == 0) {
-                    aat = yyt;
-                }
-
-                Tensor ppt = Tensor::eye() - nnt - aat;
-                proj = nnt * Float((data->bcState[i].x & 1u) > 0) +
-                       aat * Float((data->bcState[i].x & 2u) > 0) +
-                       ppt * Float((data->bcState[i].x & 4u) > 0);
-            } else if (gP.grCoordType == CoordinateSystem::Spherical) {
-                const Vector r = data->pos[i].safe_normal();
-                const Tensor rrt(r);
-                const Float phi = atan2(r[1],r[0]);
-                const Tensor ppt(-sin(phi),cos(phi),0.0);
-                proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
-                       ppt * Float((data->bcState[i].x & 2u) > 0) +
-                       (Tensor::eye() - rrt - ppt) * Float((data->bcState[i].x & 4u) > 0);
-            } else if (gP.grCoordType == CoordinateSystem::Toroidal) {
-                const Vector pos = data->pos[i];
-                Float phi = atan2(pos[1],pos[0]);
-                Float theta = atan2(sqrt(pos[0]*pos[0]+pos[1]*pos[1]) - gP.RTorus, pos[2]);
-                const Vector r = Vector(cos(phi)*sin(theta), sin(phi)*sin(theta), cos(theta));
-                const Tensor rrt(r);
-                const Tensor ppt(-sin(phi),cos(phi),0.0);
-                proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
-                       ppt * Float((data->bcState[i].x & 2u) > 0) +
-                       (Tensor::eye() - rrt - ppt) * Float((data->bcState[i].x & 4u) > 0);
-            }
-
-            data->vel[i] = data->vel[i] - proj.dot(data->vel[i]);
-            // data->vGradNode[i] = data->vGradNode[i] - proj.dot(data->vGradNode[i]).dot(proj.trans());
-            if (data->isRigid[i] != 0)
-                data->vel[i] = Vector(0.0);
-
-        }
-    }
+//     __global__ void compute_orthogonal_basis(DeviceDataPtrManaged *data, int ntet) {
+//         int i = blockIdx.x * blockDim.x + threadIdx.x;
+//         const Float hapex = gP.apex*0.5;
+//         if (i < ntet) {
+//             // Cartesian axis aligned
+//             data->R[i][0] = 1.0f;
+//             data->R[i][1] = 0.0f;
+//             data->R[i][2] = 0.0f;
+//             data->R[i][3] = 0.0f;
+//             data->R[i][4] = 1.0f;
+//             data->R[i][5] = 0.0f;
+//             data->R[i][6] = 0.0f;
+//             data->R[i][7] = 0.0f;
+//             data->R[i][8] = 1.0f;
+//
+//             int a = data->tet[i].x;
+//             int b = data->tet[i].y;
+//             int c = data->tet[i].z;
+//             int d = data->tet[i].w;
+//
+//             const Vector Xa = data->posRef[a];
+//             const Vector Xb = data->posRef[b];
+//             const Vector Xc = data->posRef[c];
+//             const Vector Xd = data->posRef[d];
+//
+//             int layer = data->layer[i] - 1;
+//             if        (gP.grCoordType == CoordinateSystem::NormalTangent) {  // Normal-Tangent
+//                 Vector n = data->normalTetra[i]/data->normalTetra[i].mag();
+//                 Vector t1 = (Xa-Xb).cross(n);
+//                 Vector t2 = (Xa-Xc).cross(n);
+//                 Vector t = (t1.mag() > t2.mag()) ? t1/t1.mag() : t2/t2.mag();
+//                 Vector b = n.cross(t)/n.cross(t).mag();
+//                 data->R[i][0] = n[0];
+//                 data->R[i][1] = t[0];
+//                 data->R[i][2] = b[0];
+//                 data->R[i][3] = n[1];
+//                 data->R[i][4] = t[1];
+//                 data->R[i][5] = b[1];
+//                 data->R[i][6] = n[2];
+//                 data->R[i][7] = t[2];
+//                 data->R[i][8] = b[2];
+//             } else if (gP.grCoordType == CoordinateSystem::CylindricalZ) {  // Cylindrical Z
+//                 Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
+//                 Float theta = atan2(tetCenter[1],tetCenter[0]);
+//                 data->R[i][0] = cos(theta);
+//                 data->R[i][1] =-sin(theta);
+//                 data->R[i][2] = 0.0;
+//                 data->R[i][3] = sin(theta);;
+//                 data->R[i][4] = cos(theta);;
+//                 data->R[i][5] = 0.0;
+//                 data->R[i][6] = 0.0;
+//                 data->R[i][7] = 0.0;
+//                 data->R[i][8] = 1.0;
+//             } else if (gP.grCoordType == CoordinateSystem::CylindricalY) {  // Cylindrical Y
+//                 Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
+//                 Float theta = atan2(tetCenter[2],tetCenter[0]);
+//                 data->R[i][0] = cos(theta);
+//                 data->R[i][1] = 0.0;
+//                 data->R[i][2] =-sin(theta);
+//                 data->R[i][3] = 0.0;
+//                 data->R[i][4] = 1.0;
+//                 data->R[i][5] = 0.0;
+//                 data->R[i][6] = sin(theta);
+//                 data->R[i][7] = 0.0;
+//                 data->R[i][8] = cos(theta);
+//             } else if (gP.grCoordType == CoordinateSystem::ConeAdapted) {  // Cylindrical Y
+//                 Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
+//                 Float theta = atan2(tetCenter[2],tetCenter[0]);
+//                 data->R[i][0] = cos(hapex) * cos(theta);
+//                 data->R[i][1] =-sin(hapex) * cos(theta);
+//                 data->R[i][2] =-sin(theta);
+//                 data->R[i][3] = sin(hapex);
+//                 data->R[i][4] = cos(hapex);
+//                 data->R[i][5] = 0.0;
+//                 data->R[i][6] = cos(hapex) * sin(theta);
+//                 data->R[i][7] =-sin(hapex) * sin(theta);
+//                 data->R[i][8] = cos(theta);
+//             } else if (gP.grCoordType == CoordinateSystem::Spherical) {  // Spherical
+//                 Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25;
+//                 Float phi = atan2(tetCenter[1],tetCenter[0]);
+//                 Float theta = atan2(sqrt(tetCenter[0]*tetCenter[0]+tetCenter[1]*tetCenter[1]),tetCenter[2]);
+//                 data->R[i][0] = sin(theta)*cos(phi);
+//                 data->R[i][1] = cos(theta)*cos(phi);
+//                 data->R[i][2] =-sin(phi);
+//                 data->R[i][3] = sin(theta)*sin(phi);
+//                 data->R[i][4] = cos(theta)*sin(phi);
+//                 data->R[i][5] = cos(phi);
+//                 data->R[i][6] = cos(theta);
+//                 data->R[i][7] =-sin(theta);
+//                 data->R[i][8] = 0.0;
+//             } else if (gP.grCoordType == CoordinateSystem::Toroidal) {  // Toruidal
+//                 Vector tetCenter = (Xa+Xb+Xc+Xd)*0.25f;
+//                 Float phi = atan2(tetCenter[1],tetCenter[0]);
+//                 Float theta = atan2(sqrt(tetCenter[0]*tetCenter[0]+tetCenter[1]*tetCenter[1]) - gP.RTorus, tetCenter[2]);
+//                 data->R[i][0] = sin(theta)*cos(phi);
+//                 data->R[i][1] = cos(theta)*cos(phi);
+//                 data->R[i][2] =-sin(phi);
+//                 data->R[i][3] = sin(theta)*sin(phi);
+//                 data->R[i][4] = cos(theta)*sin(phi);
+//                 data->R[i][5] = cos(phi);
+//                 data->R[i][6] = cos(theta);
+//                 data->R[i][7] =-sin(theta);
+//                 data->R[i][8] = 0.0;
+//             }
+//         }
+//     }
+//
+//     __global__ void compute_bids(DeviceDataPtrManaged *data, const Float tol, int nver) {
+//         int i = blockIdx.x * blockDim.x + threadIdx.x;
+//         if (i < nver) {
+//             uint bcStat = 0u;
+//             const uint ax0Constraint = 1u;
+//             const uint ax1Constraint = 2u;
+//             const uint ax2Constraint = 4u;
+//
+//             if (gP.grCoordType == CoordinateSystem::NormalTangent) {
+// //TODO : It should be clarified more. Maybe, I consider this type of coordination only for the defined boundary
+//                 const uint xMinState = fabs(data->posRef[i][0] - gP.posRefMin[0]) < tol;
+//                 const uint xMaxState = fabs(data->posRef[i][0] - gP.posRefMax[0]) < tol;
+//                 const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
+//                 const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
+//                 const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
+//                 const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis2==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis2==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis2==2) * zMinState * ax2Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis2==2) * zMaxState * ax2Constraint;
+//             } if (gP.grCoordType == CoordinateSystem::Cartesian) {
+//                 const uint xMinState = fabs(data->posRef[i][0] - gP.posRefMin[0]) < tol;
+//                 const uint xMaxState = fabs(data->posRef[i][0] - gP.posRefMax[0]) < tol;
+//                 const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
+//                 const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
+//                 const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
+//                 const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis2==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis2==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis2==2) * zMinState * ax2Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis2==2) * zMaxState * ax2Constraint;
+//             } if (gP.grCoordType == CoordinateSystem::CylindricalZ) {
+//                 const Vector r(data->posRef[i][0], data->posRef[i][1], 0.0);
+//                 const uint rMinState = fabs(r.mag() - gP.rRefMin) < tol;
+//                 const uint rMaxState = fabs(r.mag() - gP.rRefMax) < tol;
+//                 const uint zMinState = fabs(data->posRef[i][2] - gP.posRefMin[2]) < tol;
+//                 const uint zMaxState = fabs(data->posRef[i][2] - gP.posRefMax[2]) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis1==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis1==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis1==2) * zMinState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis1==2) * zMaxState * ax1Constraint;
+//             } if (gP.grCoordType == CoordinateSystem::CylindricalY) {
+//                 const Vector r(data->posRef[i][0], 0.0, data->posRef[i][2]);
+//                 const uint xMinState = fabs(r.mag() - gP.rRefMin) < tol;
+//                 const uint xMaxState = fabs(r.mag() - gP.rRefMax) < tol;
+//                 const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
+//                 const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * xMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * xMaxState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
+//
+//             } if (gP.grCoordType == CoordinateSystem::ConeAdapted) {
+//                 const Vector r(data->posRef[i][0], 0.0, data->posRef[i][2]);
+//                 Float rMax = max(gP.rRefMax - data->posRef[i][1] * tan(gP.apex*0.5),0.0);
+//                 Float rMin = max(gP.rRefMin - data->posRef[i][1] * tan(gP.apex*0.5),0.0);
+//                 const uint rMinState = fabs(r.mag() - rMin) < tol;
+//                 const uint rMaxState = fabs(r.mag() - rMax) < tol;
+//                 const uint yMinState = fabs(data->posRef[i][1] - gP.posRefMin[1]) < tol;
+//                 const uint yMaxState = fabs(data->posRef[i][1] - gP.posRefMax[1]) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMinAxis1==2) * yMinState * ax1Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;
+//
+//             } else if (gP.grCoordType == CoordinateSystem::Spherical) {
+//                 const uint rMinState = fabs(data->posRef[i].mag() - gP.rRefMin) < tol;
+//                 const uint rMaxState = fabs(data->posRef[i].mag() - gP.rRefMax) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
+//             } else if (gP.grCoordType == CoordinateSystem::Toroidal) {
+//                 const Float x = data->posRef[i][0];
+//                 const Float y = data->posRef[i][1];
+//                 const Float z = data->posRef[i][2];
+//                 const Float r = sqrt((sqrt(x*x + y*y)-gP.RTorus)*(sqrt(x*x + y*y)-gP.RTorus)+z*z);
+//                 const uint rMinState = fabs(r - gP.rRefMin) < tol;
+//                 const uint rMaxState = fabs(r - gP.rRefMax) < tol;
+//
+//                 bcStat |= (gP.bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint);
+//                 bcStat |= (gP.bcTypeMinAxis0==2) * rMinState * ax0Constraint;
+//                 bcStat |= (gP.bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;
+//             }
+//
+//             data->bcState[i].x = bcStat;
+//         }
+//     }
+//
+//     __global__ void enforceBC(DeviceDataPtrManaged *data, int nver) {
+//         int i = blockIdx.x * blockDim.x + threadIdx.x;
+//
+//         if (i < nver) {
+//             Tensor proj(0);
+//             if (gP.grCoordType == CoordinateSystem::NormalTangent) {
+//                 //TODO : It should be clarified more
+//                 const Tensor xxt(1.0,0.0,0.0);
+//                 const Tensor yyt(0.0,1.0,0.0);
+//                 const Tensor zzt(0.0,0.0,1.0);
+//                 proj = xxt * Float((data->bcState[i].x & 1u) > 0) +
+//                        yyt * Float((data->bcState[i].x & 2u) > 0) +
+//                        zzt * Float((data->bcState[i].x & 4u) > 0);
+//             } else if (gP.grCoordType == CoordinateSystem::Cartesian) {
+//                 const Tensor xxt(1.0,0.0,0.0);
+//                 const Tensor yyt(0.0,1.0,0.0);
+//                 const Tensor zzt(0.0,0.0,1.0);
+//                 proj = xxt * Float((data->bcState[i].x & 1u) > 0) +
+//                        yyt * Float((data->bcState[i].x & 2u) > 0) +
+//                        zzt * Float((data->bcState[i].x & 4u) > 0);
+//             } else if (gP.grCoordType == CoordinateSystem::CylindricalZ) {
+//                 const Vector r = Vector(data->pos[i][0], data->pos[i][1],0.0).safe_normal();
+//                 const Tensor rrt(r);
+//                 const Tensor zzt(0.0,0.0,1.0);
+//                 const Tensor ppt = Tensor::eye() - rrt - zzt;
+//                 proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
+//                        zzt * Float((data->bcState[i].x & 2u) > 0) +
+//                        ppt * Float((data->bcState[i].x & 4u) > 0);
+//             } else if (gP.grCoordType == CoordinateSystem::CylindricalY) {
+//                 const Vector r = Vector(data->pos[i][0],0.0, data->pos[i][2]).safe_normal();
+//                 const Tensor rrt(r);
+//                 const Tensor yyt(0.0,1.0,0.0);
+//                 const Tensor ppt = Tensor::eye() - rrt - yyt;
+//                 proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
+//                        yyt * Float((data->bcState[i].x & 2u) > 0) +
+//                        ppt * Float((data->bcState[i].x & 4u) > 0);
+//
+//             } else if (gP.grCoordType == CoordinateSystem::ConeAdapted) {
+//                 const Float x = data->pos[i][0];
+//                 const Float z = data->pos[i][2];
+//                 const Float theta = atan2(z, x);
+//                 const Float hapex = gP.apex*0.5;
+//                 const Vector n = Vector(cos(hapex) * cos(theta),
+//                                         sin(hapex),
+//                                         cos(hapex) * sin(theta));
+//                 const Vector a = Vector(-sin(hapex) * cos(theta),
+//                                         cos(hapex),
+//                                         -sin(hapex) * sin(theta));
+//
+//                 const Tensor yyt(0.0,1.0,0.0);
+//                 const Tensor nnt(n);
+//                 Tensor aat(a);
+//
+//                 if ((data->bcState[i].x & 1u) == 0 && (data->bcState[i].x & 2u) > 0 && (data->bcState[i].x & 4u) == 0) {
+//                     aat = yyt;
+//                 }
+//
+//                 Tensor ppt = Tensor::eye() - nnt - aat;
+//                 proj = nnt * Float((data->bcState[i].x & 1u) > 0) +
+//                        aat * Float((data->bcState[i].x & 2u) > 0) +
+//                        ppt * Float((data->bcState[i].x & 4u) > 0);
+//             } else if (gP.grCoordType == CoordinateSystem::Spherical) {
+//                 const Vector r = data->pos[i].safe_normal();
+//                 const Tensor rrt(r);
+//                 const Float phi = atan2(r[1],r[0]);
+//                 const Tensor ppt(-sin(phi),cos(phi),0.0);
+//                 proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
+//                        ppt * Float((data->bcState[i].x & 2u) > 0) +
+//                        (Tensor::eye() - rrt - ppt) * Float((data->bcState[i].x & 4u) > 0);
+//             } else if (gP.grCoordType == CoordinateSystem::Toroidal) {
+//                 const Vector pos = data->pos[i];
+//                 Float phi = atan2(pos[1],pos[0]);
+//                 Float theta = atan2(sqrt(pos[0]*pos[0]+pos[1]*pos[1]) - gP.RTorus, pos[2]);
+//                 const Vector r = Vector(cos(phi)*sin(theta), sin(phi)*sin(theta), cos(theta));
+//                 const Tensor rrt(r);
+//                 const Tensor ppt(-sin(phi),cos(phi),0.0);
+//                 proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
+//                        ppt * Float((data->bcState[i].x & 2u) > 0) +
+//                        (Tensor::eye() - rrt - ppt) * Float((data->bcState[i].x & 4u) > 0);
+//             }
+//
+//             data->vel[i] = data->vel[i] - proj.dot(data->vel[i]);
+//             // data->vGradNode[i] = data->vGradNode[i] - proj.dot(data->vGradNode[i]).dot(proj.trans());
+//             if (data->isRigid[i] != 0)
+//                 data->vel[i] = Vector(0.0);
+//
+//         }
+//     }
 
     __global__ void compute_kenergy(DeviceDataPtrManaged *data, int nver) {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -586,8 +588,8 @@ namespace LagSol {
         if (i < nver) {
             Float density = 1.0f;
             Float mass = data->vol[i]*density;// + static_cast<Float>(data->vol[i]==0.f);
-            Vector accel = (data->force[i] - (data->vel[i]*data->vol[i]*gP.damping))/mass;
-            //            Vector accel = data->force[i] / mass;
+            // Vector accel = (data->force[i] - (data->vel[i]*data->vol[i]*gP.damping))/mass;
+            Vector accel = data->force[i]/mass;
             data->vel[i] = data->vel[i] + accel * dt;
         }
     }
@@ -603,10 +605,6 @@ namespace LagSol {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
         if (i < nver) {
             data->pos[i] = data->pos[i] + data->vel[i] * dt;
-
-            Tensor dFgGlobal = Tensor::eye() + gP.grRateGlobal * dt;
-            data->pos[i] = dFgGlobal.dot(data->pos[i]);
-            data->posRef[i] = dFgGlobal.dot(data->posRef[i]);
         }
     }
 

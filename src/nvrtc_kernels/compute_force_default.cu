@@ -99,7 +99,7 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int 
         /* default */Float E = 1.0;
         /* default */Float nu = 0.4;
         /* default */Float visc = 0.0;
-        /* default */Float yMin = 0.0;
+        /* default */Float plasticity = 0.0;
         /* default */Float grRate1_Ref = 0.0;
         /* default */Float grRate2_Ref = 0.0;
         /* default */Float grRate3_Ref = 0.0;
@@ -112,20 +112,20 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int 
         Tensor Fg = data->Fg[i];
         Tensor Fe = F.dot(Fg.inv());
 
-        if (yMin>0.0) {
+        if (plasticity>0.0) {
             Tensor Fep = Fe;
             Tensor Fp = data->Fp[i];
             Tensor F_trial = Fep.dot(Fp.inv());
-            Float yMax = 1.0/(yMin + 1e-10*(yMin==0.0));
+            Float yMax = 1.0/(plasticity + 1e-10*(plasticity==0.0));
 
             Tensor U,sigma,V;
             svd(F_trial,U,sigma,V);
 
             Tensor sigma_e(sigma), sigma_p(0.0);
             for (int j=0;j<1;j++) {
-                sigma_e[0] = min(max(sigma_e[0], yMin), yMax);
-                sigma_e[4] = min(max(sigma_e[4], yMin), yMax);
-                sigma_e[8] = min(max(sigma_e[8], yMin), yMax);
+                sigma_e[0] = min(max(sigma_e[0], plasticity), yMax);
+                sigma_e[4] = min(max(sigma_e[4], plasticity), yMax);
+                sigma_e[8] = min(max(sigma_e[8], plasticity), yMax);
                 sigma_e = sigma_e * pow((sigma[0]*sigma[4]*sigma[8]) / (sigma_e[0]*sigma_e[4]*sigma_e[8]), Float(1.0/3.0));
             }
             sigma_p[0] = sigma[0] / sigma_e[0];

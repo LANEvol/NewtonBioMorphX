@@ -167,7 +167,7 @@ namespace LagSol {
     double clockTime = 0.0;
     int iterCounter = 0;
     int videoCounter = 0;
-    float enDiff[1000], kinEnergy = INFINITY, potEnergy = 0.0;
+    float enDiff[1000], kinEnergy = INFINITY;
     int averageInterval = 1000;
     Float dt;
     Float maxDt = 1.0f;
@@ -235,7 +235,7 @@ namespace LagSol {
     float contactFactVel = 0.0;
     float repThickness = 0.3;
 
-    Parameters2 gP2;
+    Parameters gP;
 
 
     Eigen::ArrayX3d triCenter;
@@ -352,7 +352,8 @@ namespace LagSol {
 
         if (gP.grCoordType == Toroidal) {
             ScalarArrayDev rArray(pos.size());
-            thrust::transform(pos.begin(), pos.end(), rArray.begin(), [=] __device__(const Vector& v) {return sqrt((sqrt(v[0]*v[0] + v[1]*v[1])-gP.RTorus)*(sqrt(v[0]*v[0] + v[1]*v[1])-gP.RTorus)+v[2]*v[2]);});
+            Float RTorus = gP.RTorus;
+            thrust::transform(pos.begin(), pos.end(), rArray.begin(), [=] __device__(const Vector& v) {return sqrt((sqrt(v[0]*v[0] + v[1]*v[1]) - RTorus)*(sqrt(v[0]*v[0] + v[1]*v[1]) - RTorus)+v[2]*v[2]);});
             auto rMinMax = thrust::minmax_element(rArray.begin(), rArray.end());
             minR = *rMinMax.first;
             maxR = *rMinMax.second;
@@ -386,84 +387,316 @@ namespace LagSol {
         if (gP.useMeshDef_E)
             findAndReplaceToEndOfLine(kernelContent, "/* default */Float E", std::string("Float E = data->E[i];"));
         else
-            findAndReplaceToEndOfLine(kernelContent, "/* default */Float E", std::string("Float E = ")  + getLayerExpressions(gP2.E,   nLayers) + std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default */Float E", std::string("Float E = ")  + getLayerExpressions(gP.E,   nLayers) + std::string(";"));
 
         if (gP.useMeshDef_nu)
             findAndReplaceToEndOfLine(kernelContent, "/* default */Float nu", std::string("Float nu = data->nu[i];"));
         else
-            findAndReplaceToEndOfLine(kernelContent, "/* default */Float nu", std::string("Float nu = ") + getLayerExpressions(gP2.nu, nLayers) + std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default */Float nu", std::string("Float nu = ") + getLayerExpressions(gP.nu, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_viscosity)
             findAndReplaceToEndOfLine(kernelContent, "/* default */Float visc", std::string("Float visc = data->visc[i];"));
         else
-            findAndReplaceToEndOfLine(kernelContent, "/* default */Float visc", std::string("Float visc = ") + getLayerExpressions(gP2.visc, nLayers) + std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default */Float visc", std::string("Float visc = ") + getLayerExpressions(gP.visc, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_plasticity)
-            findAndReplaceToEndOfLine(kernelContent, "/* default */Float yMin", std::string("Float yMin = data->plasticity[i];"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default */Float plasticity", std::string("Float plasticity = data->plasticity[i];"));
         else
-            findAndReplaceToEndOfLine(kernelContent, "/* default */Float yMin", std::string("Float yMin = ") + getLayerExpressions(gP2.plasticity, nLayers) + std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default */Float plasticity", std::string("Float plasticity = ") + getLayerExpressions(gP.plasticity, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_grRate1_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate1_Ref", std::string("Float grRate1_Ref = data->grRate1_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate1_Ref", std::string("Float grRate1_Ref = ") + getLayerExpressions(gP2.grRate1_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate1_Ref", std::string("Float grRate1_Ref = ") + getLayerExpressions(gP.grRate1_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_grRate2_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate2_Ref", std::string("Float grRate2_Ref = data->grRate2_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate2_Ref", std::string("Float grRate2_Ref = ") + getLayerExpressions(gP2.grRate2_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate2_Ref", std::string("Float grRate2_Ref = ") + getLayerExpressions(gP.grRate2_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_grRate3_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate3_Ref", std::string("Float grRate3_Ref = data->grRate3_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate3_Ref", std::string("Float grRate3_Ref = ") + getLayerExpressions(gP2.grRate3_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float grRate3_Ref", std::string("Float grRate3_Ref = ") + getLayerExpressions(gP.grRate3_Ref, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_k1)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Float k1", std::string("Float k1 = data->k1[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float k1", std::string("Float k1 = ") + getLayerExpressions(gP2.k1, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float k1", std::string("Float k1 = ") + getLayerExpressions(gP.k1, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_k2)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Float k2", std::string("Float k2 = data->k2[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float k2", std::string("Float k2 = ") + getLayerExpressions(gP2.k2, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Float k2", std::string("Float k2 = ") + getLayerExpressions(gP.k2, nLayers) + std::string(";"));
 
         if (gP.useMeshDef_fiber1_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber1_Ref", std::string("Tensor fiber1_Ref = data->fiber1_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber1_Ref", std::string("Tensor fiber1_Ref = ") + getLayerExpressions(gP2.fiber1_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber1_Ref", std::string("Tensor fiber1_Ref = ") + getLayerExpressions(gP.fiber1_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_fiber2_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber2_Ref", std::string("Tensor fiber2_Ref = data->fiber2_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber2_Ref", std::string("Tensor fiber2_Ref = ") + getLayerExpressions(gP2.fiber2_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber2_Ref", std::string("Tensor fiber2_Ref = ") + getLayerExpressions(gP.fiber2_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_fiber3_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber3_Ref", std::string("Tensor fiber3_Ref = data->fiber3_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber3_Ref", std::string("Tensor fiber3_Ref = ") + getLayerExpressions(gP2.fiber3_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber3_Ref", std::string("Tensor fiber3_Ref = ") + getLayerExpressions(gP.fiber3_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_fiber4_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber4_Ref", std::string("Tensor fiber4_Ref = data->fiber4_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber4_Ref", std::string("Tensor fiber4_Ref = ") + getLayerExpressions(gP2.fiber4_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor fiber4_Ref", std::string("Tensor fiber4_Ref = ") + getLayerExpressions(gP.fiber4_Ref, nLayers) + std::string(";"));
         if (gP.useMeshDef_actin_Ref)
              findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor actin_Ref", std::string("Tensor actin_Ref = data->actin_Ref[i];"));
-        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor actin_Ref", std::string("Tensor actin_Ref = ") + getLayerExpressions(gP2.actin_Ref, nLayers) + std::string(";"));
+        else findAndReplaceToEndOfLine(kernelContent, "/* default */Tensor actin_Ref", std::string("Tensor actin_Ref = ") + getLayerExpressions(gP.actin_Ref, nLayers) + std::string(";"));
+
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float xMin","Float xMin = "+std::to_string(gP.posRefMin[0])+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float xMax","Float xMax = "+std::to_string(gP.posRefMax[0])+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float yMin","Float yMin = "+std::to_string(gP.posRefMin[1])+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float yMax","Float yMax = "+std::to_string(gP.posRefMax[1])+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float zMin","Float zMin = "+std::to_string(gP.posRefMin[2])+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */Float zMax","Float zMax = "+std::to_string(gP.posRefMax[2])+std::string(";"));
+
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMinAxis0","int bcTypeMinAxis0 = "+std::to_string(gP.bcTypeMinAxis0)+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMaxAxis0","int bcTypeMaxAxis0 = "+std::to_string(gP.bcTypeMaxAxis0)+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMinAxis1","int bcTypeMinAxis1 = "+std::to_string(gP.bcTypeMinAxis1)+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMaxAxis1","int bcTypeMaxAxis1 = "+std::to_string(gP.bcTypeMaxAxis1)+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMinAxis2","int bcTypeMinAxis2 = "+std::to_string(gP.bcTypeMinAxis2)+std::string(";"));
+        findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMaxAxis2","int bcTypeMaxAxis2 = "+std::to_string(gP.bcTypeMaxAxis2)+std::string(";"));
+
+        if (gP.grCoordType == NormalTangent || gP.grCoordType == Cartesian) {
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * xMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * xMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * xMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * xMaxState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis1==2) * yMinState * ax1Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==2) * yMaxState * ax1Constraint |"
+                                        "\n\t\t\t(bcTypeMinAxis2==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis2==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis2==2) * zMinState * ax2Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis2==2) * zMaxState * ax2Constraint;");
+
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t xxt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t yyt * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t zzt * Float((bcState.x & 4u) > 0);");
+        }
+        if (gP.grCoordType == NormalTangent) {
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector n","Vector n = data->normalTetra[i]/data->normalTetra[i].mag();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t1","Vector t1 = (Xa-Xb).cross(n);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t2","Vector t2 = (Xa-Xc).cross(n);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t","Vector t = (t1.mag() > t2.mag()) ? t1/t1.mag() : t2/t2.mag();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector b","Vector b = n.cross(t)/n.cross(t).mag();");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = n[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = t[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] = b[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = n[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = t[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = b[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = n[2];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = t[2];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = b[2];");
+        }
 
         if (gP.grCoordType == CylindricalZ) {
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Y*Y);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Y, X);");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] =-sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 1.0;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * rMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * rMaxState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMinAxis1==1) * zMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==1) * zMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis1==2) * zMinState * ax1Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==2) * zMaxState * ax1Constraint;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r","Vector r = Vector(x, y, 0.0).safe_normal();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt","Tensor rrt(r);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt = Tensor::eye() - rrt - zzt;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t zzt * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
         }
 
         if (gP.grCoordType == CylindricalY) {
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Z*Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Z, X);");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] =-sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = 1.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = cos(Theta);");
+
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * rMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * rMaxState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis1==2) * yMinState * ax1Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r","Vector r = Vector(x, 0.0, z).safe_normal();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt","Tensor rrt(r);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt = Tensor::eye() - rrt - yyt;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t yyt * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
+
         }
 
         if (gP.grCoordType == ConeAdapted) {
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Z*Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Z, X);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float hapex","Float hapex = " + std::to_string(gP.apex*0.5) + std::string(";"));
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(hapex) * cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] =-sin(hapex) * cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] =-sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = sin(hapex);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = cos(hapex);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = 0.0;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = cos(hapex) * sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(hapex) * sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = cos(Theta);");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = max("+std::to_string(gP.rRefMin)+std::string(" - Y * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = max("+std::to_string(gP.rRefMax)+std::string(" - Y * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * rMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * rMaxState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMinAxis1==1) * yMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==1) * yMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis1==2) * yMinState * ax1Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float theta","Float theta = atan2(z, x);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor nnt","Tensor nnt(cos(hapex) * cos(theta), sin(hapex), cos(hapex) * sin(theta));");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor aat","Tensor aat(-sin(hapex) * cos(theta), cos(hapex), -sin(hapex) * sin(theta)); if ((bcState.x & 1u) == 0 && (bcState.x & 2u) > 0 && (bcState.x & 4u) == 0) { aat = yyt; };");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt = Tensor::eye() - nnt - aat;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t nnt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t aat * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
         }
 
         if (gP.grCoordType == Spherical) {
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Y*Y + Z*Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(sqrt(X*X+Y*Y), Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Phi","Float Phi = atan2(Y, X);");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = sin(Theta)*cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = cos(Theta)*cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] =-sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = sin(Theta)*sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = cos(Theta)*sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 0.0;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * rMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r","Vector r = Vector(x, y, z).safe_normal();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt","Tensor rrt(r);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float phi","Float phi = atan2(y, x);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt(-sin(phi),cos(phi),0.0);");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t ppt * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t (Tensor::eye() - rrt - ppt) * Float((bcState.x & 4u) > 0);");
         }
 
         if (gP.grCoordType == Toroidal) {
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt((sqrt(X*X+Y*Y)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(X*X+Y*Y)-Float("+std::to_string(gP.RTorus)+")) + Z*Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(sqrt(X*X+Y*Y) - Float("+std::to_string(gP.RTorus)+"), Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Phi",std::string("Float Phi = atan2(Y, X);"));
-        }
 
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = sin(Theta)*cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = cos(Theta)*cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] =-sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = sin(Theta)*sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = cos(Theta)*sin(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = cos(Phi);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = cos(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(Theta);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 0.0;");
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default *///unsigned int bcState","unsigned int bcState = "
+                                        "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==1) * rMaxState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
+                                        "\n\t\t\t(bcTypeMinAxis0==2) * rMinState * ax0Constraint |"
+                                        "\n\t\t\t(bcTypeMaxAxis0==2) * rMaxState * ax0Constraint;");
+
+            //Vector pos = data->pos[i];
+            //Float phi = atan2(pos[1],pos[0]);
+            //Float theta = atan2(sqrt(pos[0]*pos[0]+pos[1]*pos[1]) - gP.RTorus, pos[2]);
+            //Vector r = Vector(cos(phi)*sin(theta), sin(phi)*sin(theta), cos(theta));
+            //Tensor rrt(r);
+            //Tensor ppt(-sin(phi),cos(phi),0.0);
+            //proj = rrt * Float((data->bcState[i].x & 1u) > 0) +
+            //       ppt * Float((data->bcState[i].x & 2u) > 0) +
+            //       (Tensor::eye() - rrt - ppt) * Float((data->bcState[i].x & 4u) > 0);
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float phi","Float phi = atan2(y, x);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float theta","Float theta = atan2(sqrt(x*x+y*y) - Float("+std::to_string(gP.RTorus)+"), z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r","Vector r(cos(phi)*sin(theta), sin(phi)*sin(theta), cos(theta));");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt","Tensor rrt(r);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt(-sin(phi),cos(phi),0.0);");
+            findAndReplaceToEndOfLine(kernelContent,
+                "/* default */Tensor proj","Tensor proj = "
+                                        "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
+                                        "\n\t\t\t ppt * Float((bcState.x & 2u) > 0) +"
+                                        "\n\t\t\t (Tensor::eye() - rrt - ppt) * Float((bcState.x & 4u) > 0);");
+        }
 
         saveFile(pathToKernel + "/" + outputName,kernelContent);
     }
@@ -480,16 +713,25 @@ namespace LagSol {
         std::string pathToKernel = execDir+"/"+"../src/nvrtc_kernels/";
 
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_force_nvrtc.name, "_nvrtc", "_default")+".cu",compute_force_nvrtc.name+".cu", mesh.nlay);
+        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_orthogonal_basis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_orthogonal_basis_nvrtc.name+".cu", mesh.nlay);
+        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_bids_nvrtc.name, "_nvrtc", "_default")+".cu",compute_bids_nvrtc.name+".cu", mesh.nlay);
+        generate_nvrtc_kernel_source(pathToKernel,stringReplace(enforceBC_nvrtc.name, "_nvrtc", "_default")+".cu",enforceBC_nvrtc.name+".cu", mesh.nlay);
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_critical_timestep_nvrtc.name, "_nvrtc", "_default")+".cu",compute_critical_timestep_nvrtc.name+".cu", mesh.nlay);
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_for_vis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_for_vis_nvrtc.name+".cu", mesh.nlay);
 
-        _LOAD_NVRTC(compute_force_nvrtc,                kernelCount++, pathToKernel);
-        _LOAD_NVRTC(compute_critical_timestep_nvrtc,    kernelCount++, pathToKernel);
-        _LOAD_NVRTC(compute_for_vis_nvrtc,              kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_force_nvrtc,             kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_orthogonal_basis_nvrtc,  kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_bids_nvrtc,              kernelCount++, pathToKernel);
+        _LOAD_NVRTC(enforceBC_nvrtc,                 kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_critical_timestep_nvrtc, kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_for_vis_nvrtc,           kernelCount++, pathToKernel);
 
         return compute_force_nvrtc.kernel != nullptr &&
+            compute_orthogonal_basis_nvrtc.kernel != nullptr &&
+            compute_bids_nvrtc.kernel != nullptr &&
+            enforceBC_nvrtc.kernel != nullptr &&
             compute_for_vis_nvrtc.kernel != nullptr &&
-                compute_critical_timestep_nvrtc.kernel != nullptr;
+            compute_critical_timestep_nvrtc.kernel != nullptr;
     }
     void init(bool fromMesh) {
         if (fromMesh) {
@@ -537,13 +779,16 @@ namespace LagSol {
         thrust::copy(reinterpret_cast<Float*>(distance.data()), reinterpret_cast<Float*>(distance.data())+mesh.nver, distanceDev.begin());
         _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
         cudaDeviceSynchronize();
-        _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
+        _LAUNCH_NVRTC(mesh.ntet, 256, compute_orthogonal_basis_nvrtc.kernel, {&dataPtr, &mesh.ntet});
+        // _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
         cudaDeviceSynchronize();
         ///////////////////////////////////////////
 
         data.vol.assign(mesh.nver, 0.0f);
         cudaDeviceSynchronize();
-        _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
+        // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
+        Float tempFloat = bcTol*spacing;
+        _LAUNCH_NVRTC(mesh.nver, 256, compute_bids_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.nver});
         // _LUNCH(mesh.ntet, 256, compute_mechanical_parameters) (dataPtr, minPosRef, maxPosRef, mesh.ntet);
         _LAUNCH(mesh.ntet, 256, compute_volume) (dataPtr, mesh.ntet);
         cudaDeviceSynchronize();
@@ -561,7 +806,6 @@ namespace LagSol {
         _LAUNCH(mesh.nnbd, 128, read_boundary_nodes) (dataPtr, spacing, mesh.nnbd);
         _LAUNCH(mesh.ntri, 128, read_boundary_faces) (dataPtr, spacing, mesh.ntri);
         octreeSearch(data, minPos - Vector(spacing * 10.0), maxPos + Vector(spacing * 10.0));
-        potEnergy = 0.0;
         kinEnergy = 0;
         for (int i=0; i<averageInterval; i++)
             enDiff[i] = INFINITY;
@@ -749,7 +993,8 @@ namespace LagSol {
         cudaDeviceSynchronize();
         _LAUNCH(mesh.nver, 256, update_vel) (dataPtr, dt, mesh.nver);
         cudaDeviceSynchronize();
-        _LAUNCH(mesh.nver,256, enforceBC) (dataPtr, mesh.nver);
+        _LAUNCH_NVRTC(mesh.nver, 256, enforceBC_nvrtc.kernel, {&dataPtr, &mesh.nver});
+        // _LAUNCH(mesh.nver,256, enforceBC) (dataPtr, mesh.nver);
         cudaDeviceSynchronize();
         if (!gP.isAnchored()) {
             _LAUNCH(mesh.nver, 256, enforce_anchored) (dataPtr, dt, mesh.nver);
