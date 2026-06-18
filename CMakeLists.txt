@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # CUDA setup
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CUDA_ARCHITECTURES 75)
+set(CMAKE_CUDA_ARCHITECTURES "70-real;75-real;80-real;86-real;89-real;90-real;90")
 
 set(BUILD_SHARED_LIBS OFF)
 

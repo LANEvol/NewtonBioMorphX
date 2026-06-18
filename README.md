@@ -1,9 +1,13 @@
 # NewtonBioMorphX:
-NewtonBioMorphX is a **C++17/CUDA** application for GPU-accelerated biomechanical morphogenesis simulation built with **CMake**.
+NewtonBioMorphX is a GPU‑accelerated finite‑element framework for simulating hyperelastic, plastic,
+and viscous tissues with growth, anisotropic passive fibers, and active stresses. It integrates a 
+broad set of functionalities into a single platform with mesh generation, material property
+assignment, boundary‑conditions, visualization tools, and efficient GPU solvers, enabling researchers
+to model diverse morphogenetic processes through an accessible graphical interface.
 
 ---
 
-## Operating System and Dependencies
+## Operating system, Hardware and Software Dependencies
 
 The recommended environment is:
 
@@ -20,26 +24,29 @@ This corresponds to compute capabilities 7.5, 8.9, and 9.0.
 - 8.9 is used by NVIDIA Ada Lovelace GPUs (RTX 40‑series and 50-series).
 - 9.0 is used by NVIDIA Hopper GPUs (H100 and related data‑center GPUs).
 
-The application requires:
+⚠️ Running the application on pre‑7.0 CUDA architectures may cause significant performance degradation.
 
-- CMake 3.21 or newer
-- C++17 compiler
-- CUDA Toolkit
-- NVIDIA CUDA driver
-- Git
-- GDB
-- pkg-config
-- OpenGL / GLX / X11 libraries
-- Gmsh
-- Eigen3
-- SDL2
-- Freetype
-- VTK
-- FFmpeg development libraries
-- GMP
-- MPFR
-- Python 3 and pip
+This application relies on the following libraries:
 
+- `GCC` https://gcc.gnu.org/
+- `CUDA Toolkit` https://developer.nvidia.com/cuda/toolkit
+- `libigl` https://libigl.github.io/
+- `Eigen` https://eigen.tuxfamily.org
+- `Dear ImGui` https://github.com/ocornut/imgui
+- `zenity` https://gitlab.gnome.org/GNOME/zenity 
+- `OpenGL/GLX` https://www.opengl.org/ 
+- `GLFW` https://www.glfw.org/
+- `Xlib` https://www.x.org/
+- `SDL2` https://www.libsdl.org/
+- `Gmsh` https://gmsh.info/
+- `Freetype` https://freetype.org/
+- `VTK` https://vtk.org/
+- `FFmpeg` https://www.ffmpeg.org/
+- `GMP` https://gmplib.org/
+- `MPFR` https://www.mpfr.org/
+- `Python 3` https://www.python.org
+- `CMake` https://cmake.org/ 
+- `pkgconf` https://github.com/pkgconf/pkgconf
 ---
 ## 🐳 Running the Application with Docker
 
@@ -131,7 +138,6 @@ docker run --rm  -it \
 ```
 ---
 ### 3. Build the application
-
 Build the application using CMake:
 ```
 cmake -S . \
@@ -139,8 +145,28 @@ cmake -S . \
       -DCMAKE_BUILD_TYPE=Release
 cmake --build cmake-build-release-docker_gpu -j
 ```
-If you want to run the application in GUI mode, please ensure that the container is running with required parameters:
-Run the container:
+### 4. CUDA Architecture Note
+
+The project is configured for a specific CUDA architecture. If your GPU has a different compute capability, update the CUDA architecture before building.
+
+Common values:
+
+| GPU Generation | CUDA Architecture |
+|----------------|------------------:|
+| Volta          |                70 |
+| Turing         |                75 |
+| Ampere         |                86 |
+| Ada Lovelace   |                89 |
+| Hopper         |                90 |
+
+For example, for an RTX 30-series GPU, use:
+```
+set(CMAKE_CUDA_ARCHITECTURES "86")
+```
+
+After changing the architecture, rebuild from a clean build directory.
+If you want to run the application with a GUI, start the container with the required X11 and GPU settings:
+
 ```
 docker run --rm -it \
        --gpus all -e DISPLAY=$DISPLAY \
