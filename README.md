@@ -106,6 +106,7 @@ xhost -local:docker
 The following instructions are for developers who wish to build the application from source.
 The provided Docker setup is based on NVIDIA CUDA Ubuntu images and is intended for GPU-enabled systems.
 Docker GPU support requires the **NVIDIA Container Toolkit**.
+
 ---
 
 ### 1. Verify docker GPU support
@@ -138,7 +139,7 @@ cmake -S . \
       -DCMAKE_BUILD_TYPE=Release
 cmake --build cmake-build-release-docker_gpu -j
 ```
-If you want to run the application in GUI mode, please ensure that the container is running with required parameters: 
+If you want to run the application in GUI mode, please ensure that the container is running with required parameters:
 Run the container:
 ```
 docker run --rm -it \
@@ -147,6 +148,14 @@ docker run --rm -it \
        -v /tmp/.X11-unix:/tmp/.X11-unix \ 
        -v "$PWD/:/workspace/" newtonbiomorphx
 ```
+
+---
+
+## Contact
+
+For questions or support, reach us at:
+- ebrahim.jahanbakhsh [at] unige [dot] ch
+- michel.milinkovitch [at] unige [dot] ch
 
 ---
 
