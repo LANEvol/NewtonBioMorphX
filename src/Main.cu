@@ -367,8 +367,11 @@ ScalarArrayEigen device_to_vis_data_tet_section(const std::any &selectedData, in
     return tempData;
 }
 
-int main(int argc, char** argv) {
+static std::string exec_path;
 
+int main(int argc, char** argv) {
+    // std::filesystem::current_path(std::filesystem::canonical("/proc/self/exe").parent_path()); //setting path
+    exec_path = std::filesystem::canonical("/proc/self/exe").parent_path(); //setting path
     gP.init();
 
     if (argc > 1) {
@@ -1145,7 +1148,7 @@ int main(int argc, char** argv) {
             0x0370, 0x03FF,   // Greek
             0
         };
-        io.Fonts->AddFontFromFileTTF("../share/fonts/LiberationMono-Regular.ttf",20,    nullptr, ranges);
+        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, ranges);
         io.Fonts->Build();
 
         SDL_Event event;
@@ -1523,7 +1526,7 @@ int main(int argc, char** argv) {
                                 modelChanged = true;
                                 basisChanged = true;
                                 firstTimeSetMeshToViewer = true;
-                                readSetting(std::get<1>(presets[n]).c_str());
+                                readSetting((exec_path+"/"+std::get<1>(presets[n])).c_str());
                             }
                             if (ImGui::IsItemHovered()) {
                                 ImGui::SetTooltip(std::get<2>(presets[n]).c_str());

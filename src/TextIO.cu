@@ -328,8 +328,8 @@ void readSetting(std::string fileName){
         if (token == std::string("visc"))      {std::getline(ss, gP.visc[i]); gP.visc[i] = trim(gP.visc[i], "= \t");};
         if (token == std::string("plasticity"))    {std::getline(ss, gP.plasticity[i]); gP.plasticity[i] = trim(gP.plasticity[i], "= \t");};
         if (token == std::string("grRate1_Ref"))   {std::getline(ss, gP.grRate1_Ref[i]); gP.grRate1_Ref[i] = trim(gP.grRate1_Ref[i], "= \t");};
-        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP.grRate2_Ref[i]); gP.grRate2_Ref[i] = trim(gP.grRate2_Ref[i], "= \t"); std::cout << " grRate2 : "<< gP.grRate2_Ref[i] << std::endl;};
-        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP.grRate3_Ref[i]); gP.grRate3_Ref[i] = trim(gP.grRate3_Ref[i], "= \t"); std::cout << " grRate3 : "<< gP.grRate3_Ref[i] << std::endl;};
+        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP.grRate2_Ref[i]); gP.grRate2_Ref[i] = trim(gP.grRate2_Ref[i], "= \t");};
+        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP.grRate3_Ref[i]); gP.grRate3_Ref[i] = trim(gP.grRate3_Ref[i], "= \t");};
 
         if (token == std::string("k1"))          {std::getline(ss, gP.k1[i]); gP.k1[i] = trim(gP.k1[i], "= \t");};
         if (token == std::string("k2"))          {std::getline(ss, gP.k2[i]); gP.k2[i] = trim(gP.k2[i], "= \t");};

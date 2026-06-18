@@ -82,11 +82,11 @@ RUN apt-get update && apt-get install -y \
 # -------------------------------------------------------
 WORKDIR /workspace
 
-#ADD cmake-build-release-docker_gpu/NewtonBioMorphX ./
-ADD examples ../examples
-ADD share ../share
-ADD src/nvrtc_kernels ../src/nvrtc_kernels
-COPY src/Typedefs.h ../src/
-COPY src/Primitives.h ../src/
-COPY src/DeviceDataPtr.h ../src/
-COPY src/SVD3Cuda.h ../src/
+ADD cmake-build-release-docker_gpu/NewtonBioMorphX /usr/bin/NewtonBioMorphX
+ADD examples /usr/examples
+ADD share /usr/share
+ADD src/nvrtc_kernels /usr/src/nvrtc_kernels
+COPY src/Typedefs.h /usr/src/
+COPY src/Primitives.h /usr/src/
+COPY src/DeviceDataPtr.h /usr/src/
+COPY src/SVD3Cuda.h /usr/src/
