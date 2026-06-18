@@ -48,7 +48,7 @@ namespace LagSol {
     extern bool setNewMeshToViewer;
     extern bool basisChanged;
 
-    extern Parameters2 gP2;
+    extern Parameters gP;
 
 
     extern int averageInterval;
@@ -154,7 +154,7 @@ namespace LagSol {
 
 
     extern float sliceMag[3];
-    extern float timeFactor, enDiff[1000], kinEnergy, potEnergy;
+    extern float timeFactor, enDiff[1000], kinEnergy;
     extern double FPS;
     extern double minTimeFactor;
     extern int sUpdate;

@@ -22,6 +22,7 @@ namespace LagSol {
 
         Vector posMin(mesh.pos.col(0).minCoeff(),mesh.pos.col(1).minCoeff(),mesh.pos.col(2).minCoeff());
         Vector posMax(mesh.pos.col(0).maxCoeff(),mesh.pos.col(1).maxCoeff(),mesh.pos.col(2).maxCoeff());
+
         encoder = new Encoder32(posMin,posMax);
 
         Vector minCoord, maxCoord;
@@ -40,6 +41,7 @@ namespace LagSol {
 
         isRigid.resize(mesh.nver,0);
         bcState.resize(mesh.nver,{0,0});
+
         bidsXMin = CharArrayDev(std::vector<char>(reinterpret_cast<char *>(bidsXMinh.data()),reinterpret_cast<char *>(bidsXMinh.data())+mesh.nver));
         bidsXMax = CharArrayDev(std::vector<char>(reinterpret_cast<char *>(bidsXMaxh.data()),reinterpret_cast<char *>(bidsXMaxh.data())+mesh.nver));
         bidsYMin = CharArrayDev(std::vector<char>(reinterpret_cast<char *>(bidsYMinh.data()),reinterpret_cast<char *>(bidsYMinh.data())+mesh.nver));

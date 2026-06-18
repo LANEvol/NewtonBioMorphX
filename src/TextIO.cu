@@ -203,7 +203,6 @@ BasicGeometry getGeomFromName(const std::string& geom) {
 void readSetting(std::string fileName){
     for (int i=0;i<8;i++)
         showRank1Tensors[i]=false;
-    gP2.init();
     gP.init();
     std::string delimiter(" ");
     std::string lineStr;
@@ -324,21 +323,21 @@ void readSetting(std::string fileName){
         if (token == std::string("Layer"))      ss >> i;
 
         if (token == std::string("isRigid"))    ss >> gP.isRigidLayer[i];
-        if (token == std::string("nu"))        {std::getline(ss, gP2.nu[i]); gP2.nu[i] = trim(gP2.nu[i], "= \t");};
-        if (token == std::string("E"))         {std::getline(ss, gP2.E[i]); gP2.E[i] = trim(gP2.E[i], "= \t");};
-        if (token == std::string("visc"))      {std::getline(ss, gP2.visc[i]); gP2.visc[i] = trim(gP2.visc[i], "= \t");};
-        if (token == std::string("plasticity"))    {std::getline(ss, gP2.plasticity[i]); gP2.plasticity[i] = trim(gP2.plasticity[i], "= \t");};
-        if (token == std::string("grRate1_Ref"))   {std::getline(ss, gP2.grRate1_Ref[i]); gP2.grRate1_Ref[i] = trim(gP2.grRate1_Ref[i], "= \t");};
-        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP2.grRate2_Ref[i]); gP2.grRate2_Ref[i] = trim(gP2.grRate2_Ref[i], "= \t"); std::cout << " grRate2 : "<< gP2.grRate2_Ref[i] << std::endl;};
-        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP2.grRate3_Ref[i]); gP2.grRate3_Ref[i] = trim(gP2.grRate3_Ref[i], "= \t"); std::cout << " grRate3 : "<< gP2.grRate3_Ref[i] << std::endl;};
+        if (token == std::string("nu"))        {std::getline(ss, gP.nu[i]); gP.nu[i] = trim(gP.nu[i], "= \t");};
+        if (token == std::string("E"))         {std::getline(ss, gP.E[i]); gP.E[i] = trim(gP.E[i], "= \t");};
+        if (token == std::string("visc"))      {std::getline(ss, gP.visc[i]); gP.visc[i] = trim(gP.visc[i], "= \t");};
+        if (token == std::string("plasticity"))    {std::getline(ss, gP.plasticity[i]); gP.plasticity[i] = trim(gP.plasticity[i], "= \t");};
+        if (token == std::string("grRate1_Ref"))   {std::getline(ss, gP.grRate1_Ref[i]); gP.grRate1_Ref[i] = trim(gP.grRate1_Ref[i], "= \t");};
+        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP.grRate2_Ref[i]); gP.grRate2_Ref[i] = trim(gP.grRate2_Ref[i], "= \t");};
+        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP.grRate3_Ref[i]); gP.grRate3_Ref[i] = trim(gP.grRate3_Ref[i], "= \t");};
 
-        if (token == std::string("k1"))          {std::getline(ss, gP2.k1[i]); gP2.k1[i] = trim(gP2.k1[i], "= \t");};
-        if (token == std::string("k2"))          {std::getline(ss, gP2.k2[i]); gP2.k2[i] = trim(gP2.k2[i], "= \t");};
-        if (token == std::string("fiber1_Ref"))  {std::getline(ss, gP2.fiber1_Ref[i]); gP2.fiber1_Ref[i] = trim(gP2.fiber1_Ref[i], "= \t");};
-        if (token == std::string("fiber2_Ref"))  {std::getline(ss, gP2.fiber2_Ref[i]); gP2.fiber2_Ref[i] = trim(gP2.fiber2_Ref[i], "= \t");};
-        if (token == std::string("fiber3_Ref"))  {std::getline(ss, gP2.fiber3_Ref[i]); gP2.fiber3_Ref[i] = trim(gP2.fiber3_Ref[i], "= \t");};
-        if (token == std::string("fiber4_Ref"))  {std::getline(ss, gP2.fiber4_Ref[i]); gP2.fiber4_Ref[i] = trim(gP2.fiber4_Ref[i], "= \t");};
-        if (token == std::string("actin_Ref"))   {std::getline(ss, gP2.actin_Ref[i]); gP2.actin_Ref[i] = trim(gP2.actin_Ref[i], "= \t");};
+        if (token == std::string("k1"))          {std::getline(ss, gP.k1[i]); gP.k1[i] = trim(gP.k1[i], "= \t");};
+        if (token == std::string("k2"))          {std::getline(ss, gP.k2[i]); gP.k2[i] = trim(gP.k2[i], "= \t");};
+        if (token == std::string("fiber1_Ref"))  {std::getline(ss, gP.fiber1_Ref[i]); gP.fiber1_Ref[i] = trim(gP.fiber1_Ref[i], "= \t");};
+        if (token == std::string("fiber2_Ref"))  {std::getline(ss, gP.fiber2_Ref[i]); gP.fiber2_Ref[i] = trim(gP.fiber2_Ref[i], "= \t");};
+        if (token == std::string("fiber3_Ref"))  {std::getline(ss, gP.fiber3_Ref[i]); gP.fiber3_Ref[i] = trim(gP.fiber3_Ref[i], "= \t");};
+        if (token == std::string("fiber4_Ref"))  {std::getline(ss, gP.fiber4_Ref[i]); gP.fiber4_Ref[i] = trim(gP.fiber4_Ref[i], "= \t");};
+        if (token == std::string("actin_Ref"))   {std::getline(ss, gP.actin_Ref[i]); gP.actin_Ref[i] = trim(gP.actin_Ref[i], "= \t");};
 
         std::getline(infile,lineStr);
     }
@@ -455,22 +454,22 @@ void writeSetting(std::string fileName) {
         ofile << "" << "Layer " << i << std::endl;
 
         ofile << "\t" << "isRigid "<< gP.isRigidLayer[i]<< std::endl;
-        ofile << "\t" << "nu "<< gP2.nu[i]<< std::endl;
-        ofile << "\t" << "E "<< gP2.E[i]<< std::endl;
-        ofile << "\t" << "visc "<< gP2.visc[i]<< std::endl;
-        ofile << "\t" << "grRate1_Ref "<< gP2.grRate1_Ref[i]<< std::endl;
-        ofile << "\t" << "grRate2_Ref "<< gP2.grRate2_Ref[i]<< std::endl;
-        ofile << "\t" << "grRate3_Ref "<< gP2.grRate3_Ref[i]<< std::endl;
-        ofile << "\t" << "plasticity "<< gP2.plasticity[i]<< std::endl;
+        ofile << "\t" << "nu "<< gP.nu[i]<< std::endl;
+        ofile << "\t" << "E "<< gP.E[i]<< std::endl;
+        ofile << "\t" << "visc "<< gP.visc[i]<< std::endl;
+        ofile << "\t" << "grRate1_Ref "<< gP.grRate1_Ref[i]<< std::endl;
+        ofile << "\t" << "grRate2_Ref "<< gP.grRate2_Ref[i]<< std::endl;
+        ofile << "\t" << "grRate3_Ref "<< gP.grRate3_Ref[i]<< std::endl;
+        ofile << "\t" << "plasticity "<< gP.plasticity[i]<< std::endl;
         if (nFibers>0) {
-            ofile << "\t" << "k1 "<< gP2.k1[i]<< std::endl;
-            ofile << "\t" << "k2 "<< gP2.k2[i]<< std::endl;
-            ofile << "\t" << "fiber1_Ref "<< gP2.fiber1_Ref[i]<< std::endl;
-            if (nFibers>1) ofile << "\t" << "fiber2_Ref "<< gP2.fiber2_Ref[i]<< std::endl;
-            if (nFibers>2) ofile << "\t" << "fiber3_Ref "<< gP2.fiber3_Ref[i]<< std::endl;
-            if (nFibers>3) ofile << "\t" << "fiber4_Ref "<< gP2.fiber4_Ref[i]<< std::endl;
+            ofile << "\t" << "k1 "<< gP.k1[i]<< std::endl;
+            ofile << "\t" << "k2 "<< gP.k2[i]<< std::endl;
+            ofile << "\t" << "fiber1_Ref "<< gP.fiber1_Ref[i]<< std::endl;
+            if (nFibers>1) ofile << "\t" << "fiber2_Ref "<< gP.fiber2_Ref[i]<< std::endl;
+            if (nFibers>2) ofile << "\t" << "fiber3_Ref "<< gP.fiber3_Ref[i]<< std::endl;
+            if (nFibers>3) ofile << "\t" << "fiber4_Ref "<< gP.fiber4_Ref[i]<< std::endl;
         }
-        ofile << "\t" << "actin_Ref "<< gP2.actin_Ref[i]<< std::endl;
+        ofile << "\t" << "actin_Ref "<< gP.actin_Ref[i]<< std::endl;
     }
     ofile.close();
 }

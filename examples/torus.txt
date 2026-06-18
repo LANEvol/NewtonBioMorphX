@@ -6,13 +6,13 @@ Ri10
 H 5 
 spacing 1 
 nFibers 2
-globalTime 13155.4
+globalTime 0
 outputFileName ./../output.vtk
 maxIter 200000
 timeThreshold 1e+07
 saveTime 100000
 frames 6797
-timeFactor 0.5625
+timeFactor 1.0
 minTimeFactor 1e-06
 saveVTK 0
 savePLY 0
@@ -24,7 +24,7 @@ showFilamentFibers 0 0 0 0 0 0 0 0
 scaleFilamentFibers 500 500 500 1 1 1 1 1
 searchIter 400
 kinEnergyTol 1e-06
-simIter 391545
+simIter 0
 meshVisState 0
 selectedLayer 0
 sliceDir 0

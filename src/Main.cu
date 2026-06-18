@@ -54,6 +54,7 @@ std::mutex mtx;
 std::condition_variable runSim;
 using namespace LagSol;
 
+
 //std::tuple<std::string, std::any, int> varName{"aaaa",&data.lamInt,-1};
 std::vector<std::tuple<std::string, std::any, int>> varNamesColor = {
     {"Layers", &data.layer,-1}, {"Velocity", &data.vel,-1},
@@ -144,7 +145,6 @@ bool isSimDiverged() {
 
 std::string projectFileName;
 std::chrono::time_point<std::chrono::system_clock> mStartTime;
-Float mGrowthProgress;
 
 int runMode = 0;
 
@@ -176,22 +176,29 @@ bool inline ImGuiMessage(const bool& cond, const std::string& title, const std::
 }
 
 void getAverageAndSTD(float* avgSTD, const float *data, int N) {
-    float wSum = 1e-10f;
-    avgSTD[0] = 1e-10f;
-    avgSTD[1] = 1e-10f;
+    int wSum = 0;
+    avgSTD[0] = 0.0f;
+    avgSTD[1] = 0.0f;
     for (int i=0; i<N; i++) {
         if (std::isfinite(data[i])) {
             avgSTD[0] += data[i];
-            wSum += 1.0;
+            wSum += 1;
         }
     }
-    avgSTD[0] = avgSTD[0] / wSum;
-    for (int i=0; i<N; i++) {
-        if (std::isfinite(data[i]))
+    if (wSum>0) {
+        avgSTD[0] = avgSTD[0] / Float(wSum);
+        for (int i=0; i<N; i++) {
+	    if (std::isfinite(data[i]))
             avgSTD[1] += (data[i] - avgSTD[0]) * (data[i] - avgSTD[0]);
+        }
+        avgSTD[1] = sqrt(avgSTD[1] / (Float(wSum)-1.0));
+    } else {
+    	avgSTD[0] = NAN;
+    	avgSTD[1] = NAN;
     }
-    avgSTD[1] = sqrt(avgSTD[1] / (wSum-1.0));
-    //return avgSTD;
+    if (wSum<2) {
+    	avgSTD[1] = NAN;        
+    }	    
 }
 
 #define IMGUI_DISABLE_WIDGET {ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true); ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);}
@@ -360,9 +367,11 @@ ScalarArrayEigen device_to_vis_data_tet_section(const std::any &selectedData, in
     return tempData;
 }
 
-int main(int argc, char** argv) {
+static std::string exec_path;
 
-    gP2.init();
+int main(int argc, char** argv) {
+    // std::filesystem::current_path(std::filesystem::canonical("/proc/self/exe").parent_path()); //setting path
+    exec_path = std::filesystem::canonical("/proc/self/exe").parent_path(); //setting path
     gP.init();
 
     if (argc > 1) {
@@ -424,11 +433,7 @@ int main(int argc, char** argv) {
         paramChanged = true;
     };
 
-    // For Linux systems
-    // std::filesystem::current_path(std::filesystem::canonical("/proc/self/exe").parent_path()); //setting path
-
     mStartTime = std::chrono::system_clock::now();
-    mGrowthProgress = 0.0;
 
     auto nogui = [] {
         layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(mesh.boundaryTetIds) - 1).cast<double>().transpose();
@@ -448,7 +453,10 @@ int main(int argc, char** argv) {
         bcChanged = false;
         // _LUNCH(mesh.ntet, 256, compute_nodalENu) (dataPtr, mesh.ntet);
         // cudaDeviceSynchronize();
-        _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
+        // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
+        Float tempFloat = bcTol*spacing;
+        _LAUNCH_NVRTC(mesh.nver, 256, compute_bids_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.nver});
+
         cudaDeviceSynchronize();
 
         ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
@@ -456,24 +464,18 @@ int main(int argc, char** argv) {
         thrust::copy(reinterpret_cast<Float*>(distance.data()), reinterpret_cast<Float*>(distance.data())+mesh.nver, distanceDev.begin());
         _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
         cudaDeviceSynchronize();
-        _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
+        // _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
+        _LAUNCH_NVRTC(mesh.ntet, 256, compute_orthogonal_basis_nvrtc.kernel, {&dataPtr, &mesh.ntet});
+
         cudaDeviceSynchronize();
 
         run = true;
         runSim.notify_all();
         int k = 0;
         while (!shutDown) {
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - mStartTime).count()>1000.0) {
-                // float wSum = 1e-10;
-                // float enDiffAvgSum = 0.0;
-                // for (int tt=0; tt<averageInterval; tt++) {
-                //     if (std::isfinite(enDiff[tt])) {
-                //         enDiffAvgSum += enDiff[tt];
-                //         wSum += 1.0;
-                //     }
-                // }
-                // float enDiffAvg = enDiffAvgSum / wSum;
+            shutDown = !run;
 
+            if ((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - mStartTime).count()>1000.0) || shutDown) {
                 float avgSTD[2] = {INFINITY, INFINITY};
                 getAverageAndSTD(avgSTD, enDiff, averageInterval);
                 float energySTD = avgSTD[1];
@@ -987,7 +989,6 @@ int main(int argc, char** argv) {
     };
 
     auto fem_iterate = [] {
-        potEnergy = 0.001;
 
         auto start = std::chrono::steady_clock::now();
         auto end = std::chrono::steady_clock::now();
@@ -1003,10 +1004,6 @@ int main(int argc, char** argv) {
                 enDiff[simIter % averageInterval] = thrust::reduce(data.potEnergy.begin(), data.potEnergy.end())
                 / thrust::reduce(data.tetVol.begin(), data.tetVol.end());
 
-                if (simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval)) {
-                    run = false;
-                }
-
                 if (simIter % averageInterval == 0) {
                     simDiverged = isSimDiverged();
                     if (!simDiverged) {
@@ -1016,7 +1013,6 @@ int main(int argc, char** argv) {
                     float avgSTD[2] = {INFINITY, INFINITY};
                     getAverageAndSTD(avgSTD, enDiff, averageInterval);
                     kinEnergy = avgSTD[1];
-                    std::cout << "Average Energy: " << avgSTD[0] << "  Average Divergence: " << avgSTD[1] << std::endl;
                 }
 
                 if (simDiverged) {
@@ -1033,8 +1029,7 @@ int main(int argc, char** argv) {
                     _LAUNCH(mesh.nnbd, 128, read_boundary_nodes) (dataPtr, spacing, mesh.nnbd);
                     _LAUNCH(mesh.ntri, 128, read_boundary_faces) (dataPtr, spacing, mesh.ntri);
                     octreeSearch(data, minPos - Vector(spacing * 10.0f), maxPos + Vector(spacing * 10.0f));
-                    potEnergy = 0.0;
-                    kinEnergy = 0;
+                    kinEnergy = NAN;
                     for (int i=0; i<averageInterval; i++)
                         enDiff[i] = INFINITY;
                     renderNewData = true;
@@ -1056,7 +1051,6 @@ int main(int argc, char** argv) {
                     start = std::chrono::steady_clock::now();
                 }
 
-                //if ((savePLY) && ((runMode==1) && (std::round(((growthProgress - mGrowthProgress)*100.0)>=(saveTime - 1e-5))) || shutDown))
                 if ((savePLY || saveVTK) &&
                     ((runMode==1) && (std::sin(globalTime/saveTime * M_PI) * std::sin((globalTime-dt)/saveTime * M_PI)<=0.0)
                     || shutDown))
@@ -1154,7 +1148,7 @@ int main(int argc, char** argv) {
             0x0370, 0x03FF,   // Greek
             0
         };
-        io.Fonts->AddFontFromFileTTF("../share/fonts/LiberationMono-Regular.ttf",20,    nullptr, ranges);
+        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, ranges);
         io.Fonts->Build();
 
         SDL_Event event;
@@ -1532,7 +1526,7 @@ int main(int argc, char** argv) {
                                 modelChanged = true;
                                 basisChanged = true;
                                 firstTimeSetMeshToViewer = true;
-                                readSetting(std::get<1>(presets[n]).c_str());
+                                readSetting((exec_path+"/"+std::get<1>(presets[n])).c_str());
                             }
                             if (ImGui::IsItemHovered()) {
                                 ImGui::SetTooltip(std::get<2>(presets[n]).c_str());
@@ -1680,13 +1674,13 @@ int main(int argc, char** argv) {
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-                ImGuiParamReadRow("Young's modulus ", gP2.E[selectedLayer], gP.useMeshDef_E, mesh.E.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Young's modulus ", gP.E[selectedLayer], gP.useMeshDef_E, mesh.E.rows()==mesh.ntet, paramChanged);
                 ImGui::Separator();
-                ImGuiParamReadRow("Poisson's ratio ", gP2.nu[selectedLayer], gP.useMeshDef_nu, mesh.nu.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Poisson's ratio ", gP.nu[selectedLayer], gP.useMeshDef_nu, mesh.nu.rows()==mesh.ntet, paramChanged);
                 ImGui::Separator();
-                ImGuiParamReadRow("Viscosity ", gP2.visc[selectedLayer], gP.useMeshDef_viscosity, mesh.visc.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Viscosity ", gP.visc[selectedLayer], gP.useMeshDef_viscosity, mesh.visc.rows()==mesh.ntet, paramChanged);
                 ImGui::Separator();
-                ImGuiParamReadRow("Plasticity coeff. ", gP2.plasticity[selectedLayer], gP.useMeshDef_plasticity, mesh.plasticity.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Plasticity coeff. ", gP.plasticity[selectedLayer], gP.useMeshDef_plasticity, mesh.plasticity.rows()==mesh.ntet, paramChanged);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Ranges from 0 (elastic) to 1 (plastic)");
                 ImGui::EndTable();
@@ -1710,21 +1704,21 @@ int main(int argc, char** argv) {
                 // ImGui::EndTable();
 
                 if (nFibers>0) {
-                    ImGuiParamReadRow("Fiber k1", gP2.k1[selectedLayer], gP.useMeshDef_k1, mesh.k1.rows()==mesh.ntet, paramChanged);
-                    ImGuiParamReadRow("Fiber k2", gP2.k2[selectedLayer], gP.useMeshDef_k2, mesh.k2.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow("Fiber k1", gP.k1[selectedLayer], gP.useMeshDef_k1, mesh.k1.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow("Fiber k2", gP.k2[selectedLayer], gP.useMeshDef_k2, mesh.k2.rows()==mesh.ntet, paramChanged);
                     for (int i = 0; i < nFibers; i++) {
                         if (i==0)
-                            ImGuiParamReadRow("Fiber 1", gP2.fiber1_Ref[selectedLayer], gP.useMeshDef_fiber1_Ref, mesh.fiberTetra1.rows()==mesh.ntet, paramChanged);
+                            ImGuiParamReadRow("Fiber 1", gP.fiber1_Ref[selectedLayer], gP.useMeshDef_fiber1_Ref, mesh.fiberTetra1.rows()==mesh.ntet, paramChanged);
                         if (i==1)
-                            ImGuiParamReadRow("Fiber 2", gP2.fiber2_Ref[selectedLayer], gP.useMeshDef_fiber2_Ref, mesh.fiberTetra2.rows()==mesh.ntet, paramChanged);
+                            ImGuiParamReadRow("Fiber 2", gP.fiber2_Ref[selectedLayer], gP.useMeshDef_fiber2_Ref, mesh.fiberTetra2.rows()==mesh.ntet, paramChanged);
                         if (i==2)
-                            ImGuiParamReadRow("Fiber 3", gP2.fiber3_Ref[selectedLayer], gP.useMeshDef_fiber3_Ref, mesh.fiberTetra3.rows()==mesh.ntet, paramChanged);
+                            ImGuiParamReadRow("Fiber 3", gP.fiber3_Ref[selectedLayer], gP.useMeshDef_fiber3_Ref, mesh.fiberTetra3.rows()==mesh.ntet, paramChanged);
                         if (i==3)
-                            ImGuiParamReadRow("Fiber 4", gP2.fiber4_Ref[selectedLayer], gP.useMeshDef_fiber4_Ref, mesh.fiberTetra4.rows()==mesh.ntet, paramChanged);
+                            ImGuiParamReadRow("Fiber 4", gP.fiber4_Ref[selectedLayer], gP.useMeshDef_fiber4_Ref, mesh.fiberTetra4.rows()==mesh.ntet, paramChanged);
                     }
                 }
                 ImGui::Separator();
-                ImGuiParamReadRow("Active tensile force", gP2.actin_Ref[selectedLayer], gP.useMeshDef_actin_Ref, mesh.actinTetra.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Active tensile force", gP.actin_Ref[selectedLayer], gP.useMeshDef_actin_Ref, mesh.actinTetra.rows()==mesh.ntet, paramChanged);
                 ImGui::EndTable();
             }
 
@@ -1765,12 +1759,12 @@ int main(int argc, char** argv) {
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-                ImGuiParamReadRow(dir1, gP2.grRate1_Ref[selectedLayer], gP.useMeshDef_grRate1_Ref, mesh.grRate1.rows()==mesh.ntet, paramChanged);
-                ImGuiParamReadRow(dir2, gP2.grRate2_Ref[selectedLayer], gP.useMeshDef_grRate2_Ref, mesh.grRate2.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow(dir1, gP.grRate1_Ref[selectedLayer], gP.useMeshDef_grRate1_Ref, mesh.grRate1.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow(dir2, gP.grRate2_Ref[selectedLayer], gP.useMeshDef_grRate2_Ref, mesh.grRate2.rows()==mesh.ntet, paramChanged);
                 if (gP.grCoordType!=0)
-                    ImGuiParamReadRow(dir3, gP2.grRate3_Ref[selectedLayer], gP.useMeshDef_grRate3_Ref, mesh.grRate3.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow(dir3, gP.grRate3_Ref[selectedLayer], gP.useMeshDef_grRate3_Ref, mesh.grRate3.rows()==mesh.ntet, paramChanged);
                 else
-                    gP2.grRate3_Ref[selectedLayer] = gP2.grRate2_Ref[selectedLayer];
+                    gP.grRate3_Ref[selectedLayer] = gP.grRate2_Ref[selectedLayer];
                 ImGui::EndTable();
             }
 
@@ -1880,6 +1874,7 @@ int main(int argc, char** argv) {
                     bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis2, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis2, 2) || bcChanged;
                 }
+                paramChanged = bcChanged || paramChanged;
                 ImGui::EndTable();
             }
 
@@ -1891,7 +1886,7 @@ int main(int argc, char** argv) {
                 ImGui::InputInt("Maximum iteration", &maxIterInt);
                 maxIter = std::max(maxIterInt, 0);
                 float fkinEnergyTol = kinEnergyTol;
-                ImGui::InputFloat("Minimum ΔE", &fkinEnergyTol, 1.0f, 1e-4f, "%.5f");
+                ImGui::InputFloat("Minimum ΔE", &fkinEnergyTol, 1.0f, 1e-4f, "%.5e");
                 kinEnergyTol = std::max(fkinEnergyTol, 0.0f);
                 ImGui::InputFloat("Contact weight", &contactFact, 10.0f, 0.05f, "%.2f");
                 contactFact = std::max(contactFact, 0.0f);
@@ -2063,7 +2058,8 @@ int main(int argc, char** argv) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
                 run = !ImGui::Button("Pause simulation", ImVec2(-1, 0));
                 ImGui::PopStyleColor();
-                run = run && (timeFactor>1e-4);
+                run = run && not(timeFactor<1e-4);
+                run = run && not(simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval));
             }
 
             if (saveMP4) {
@@ -2081,9 +2077,9 @@ int main(int argc, char** argv) {
 
             if (!lowTimeFactorFlag)
                 lowTimeFactorFlag = ImGuiMessage(timeFactor<1e-4, "Warning !", "Time-step became too small.\nYou may need to change the model parameters.\nPress \"Reset\" button before running again.");
-            if (!maxIterFlag)
-                maxIterFlag = ImGuiMessage(simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval),
-                    "Stop condition is reached!", "To resume, change the max iteration or total energy limits.");
+            if ((!maxIterFlag) and not(timeFactor<1e-4))
+                maxIterFlag = ImGuiMessage((simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval)),
+                    "Stop condition is reached !", "You may need too change the max iteration or energy limit.\nCheck \"Simulation Parameters\".");
 
             if (ImGui::Button("Save Project", ImVec2(-1, 0))) {
                 std::string fname = igl::file_dialog_save();
@@ -2272,7 +2268,6 @@ int main(int argc, char** argv) {
                     } else
                         _ERROR_MESSAGE("Input mesh in not a vtk file !");
                 } else {
-                    // grid.init(domainSize[0],domainSize[1],domainSize[2],domainDx[0],domainDx[1],domainDx[2],mesh);
                     init();
                 }
                 clockTime = 0.0;
@@ -2287,7 +2282,7 @@ int main(int argc, char** argv) {
             }
 
             if (defaultParamFlag) {
-                gP2.init();
+                gP.init();
                 for (int i = 0; i < MAX_NLAYERS; i++)
                     gP.isRigidLayer[i] = false;
                 gP.grRateGlobal = Tensor(0.0);
@@ -2353,17 +2348,18 @@ int main(int argc, char** argv) {
 
             if (bcChanged) {
                 bcChanged = false;
-                _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
-                cudaDeviceSynchronize();
-
-                ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
-                ScalarArrayDev distanceDev(mesh.nver,0.0);
-                thrust::copy(reinterpret_cast<Float*>(distance.data()), reinterpret_cast<Float*>(distance.data())+mesh.nver, distanceDev.begin());
-                _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
-                cudaDeviceSynchronize();
-                _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
-                cudaDeviceSynchronize();
-                renderNewData = true;
+                // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
+                // cudaDeviceSynchronize();
+                //
+                // ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
+                // ScalarArrayDev distanceDev(mesh.nver,0.0);
+                // thrust::copy(reinterpret_cast<Float*>(distance.data()), reinterpret_cast<Float*>(distance.data())+mesh.nver, distanceDev.begin());
+                // _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
+                // cudaDeviceSynchronize();
+                // // _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
+                // _LAUNCH_NVRTC(mesh.ntet, 256, compute_orthogonal_basis_nvrtc.kernel, {&dataPtr, &mesh.nver});
+                // cudaDeviceSynchronize();
+                // renderNewData = true;
             }
         }
         // Cleanup
