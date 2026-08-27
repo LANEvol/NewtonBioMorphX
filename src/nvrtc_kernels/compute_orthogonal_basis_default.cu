@@ -38,15 +38,15 @@ __global__ void compute_orthogonal_basis_nvrtc(DeviceDataPtr *data, int ntet) {
         Float Y = tetCenter[1];
         Float Z = tetCenter[2];
 
-        /* default *///Vector n;
+        /* default *///Vector nVec;
         /* default *///Vector t1;
         /* default *///Vector t2;
-        /* default *///Vector t;
-        /* default *///Vector b;
+        /* default *///Vector tVec;
+        /* default *///Vector bVec;
 
         /* default *///Float Theta;
         /* default *///Float Phi;
-        /* default *///Float hapex = gP.apex*0.5;
+        /* default *///Float hapex;
 
         /* default */data->R[i][0] = Float(1.0);
         /* default */data->R[i][1] = Float(0.0);

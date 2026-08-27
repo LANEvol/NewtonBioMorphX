@@ -83,6 +83,7 @@
         __host__ __device__ Vector operator*(const Float& other) const  { return Vector(data[0]*other,data[1]*other,data[2]*other);}
         __host__ __device__ Vector operator/(const Vector& other) const  { return Vector(data[0]/other[0],data[1]/other[1],data[2]/other[2]);}
         __host__ __device__ Vector operator/(const Float& other) const  { return Vector(data[0]/other,data[1]/other,data[2]/other);}
+        __host__ __device__ void operator+=(const Vector& other) { data[0]+=other[0]; data[1]+=other[1]; data[2]+=other[2];}
         __host__ __device__ Float dot(const Vector& other) const  { return (data[0]*other[0]+data[1]*other[1]+data[2]*other[2]);}
         __host__ __device__ Vector cross(const Vector& other) const  { return Vector(data[1]*other[2] - data[2]*other[1],data[2]*other[0]-data[0]*other[2],data[0]*other[1] - data[1]*other[0]);}
         __host__ __device__ Float norm1() const {return max(abs(data[0]),max(abs(data[1]),abs(data[2])));}
@@ -177,6 +178,10 @@
 
     inline __host__ __device__ Tensor operator*(const Float& aFloat, const Tensor& aTensor) {
         return aTensor * aFloat;
+    }
+
+    inline __host__ __device__ Vector operator*(const Float& aFloat, const Vector& aVector) {
+        return aVector * aFloat;
     }
 
     inline __host__ __device__ Vector dot(const Vector& v, const Tensor& t) {

@@ -451,7 +451,6 @@ namespace LagSol {
         findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMaxAxis1","int bcTypeMaxAxis1 = "+std::to_string(gP.bcTypeMaxAxis1)+std::string(";"));
         findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMinAxis2","int bcTypeMinAxis2 = "+std::to_string(gP.bcTypeMinAxis2)+std::string(";"));
         findAndReplaceToEndOfLine(kernelContent, "/* default */int bcTypeMaxAxis2","int bcTypeMaxAxis2 = "+std::to_string(gP.bcTypeMaxAxis2)+std::string(";"));
-
         if (gP.grCoordType == NormalTangent || gP.grCoordType == Cartesian) {
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
@@ -473,28 +472,38 @@ namespace LagSol {
                                         "\n\t\t\t xxt * Float((bcState.x & 1u) > 0) +"
                                         "\n\t\t\t yyt * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t zzt * Float((bcState.x & 4u) > 0);");
+
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += xMinState * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += xMaxState * ("+gP.extLoadMaxAxis0+std::string(");"));
+            if (gP.bcTypeMinAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMinState","data->extLoad[i] += yMinState * ("+gP.extLoadMinAxis1+std::string(");"));
+            if (gP.bcTypeMaxAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMaxState","data->extLoad[i] += yMaxState * ("+gP.extLoadMaxAxis1+std::string(");"));
+            if (gP.bcTypeMinAxis2 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += zMinState","data->extLoad[i] += zMinState * ("+gP.extLoadMinAxis2+std::string(");"));
+            if (gP.bcTypeMaxAxis2 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += zMaxState","data->extLoad[i] += zMaxState * ("+gP.extLoadMaxAxis2+std::string(");"));
         }
         if (gP.grCoordType == NormalTangent) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector n","Vector n = data->normalTetra[i]/data->normalTetra[i].mag();");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t1","Vector t1 = (Xa-Xb).cross(n);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t2","Vector t2 = (Xa-Xc).cross(n);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t","Vector t = (t1.mag() > t2.mag()) ? t1/t1.mag() : t2/t2.mag();");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector b","Vector b = n.cross(t)/n.cross(t).mag();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector nVec","Vector nVec = data->normalTetra[i]/data->normalTetra[i].mag();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t1",  "Vector t1 = (Xa-Xb).cross(nVec);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector t2",  "Vector t2 = (Xa-Xc).cross(nVec);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector tVec","Vector tVec = (t1.mag() > t2.mag()) ? t1/t1.mag() : t2/t2.mag();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector bVec","Vector bVec = nVec.cross(tVec)/nVec.cross(tVec).mag();");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = n[0];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = t[0];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] = b[0];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = n[1];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = t[1];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = b[1];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = n[2];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = t[2];");
-            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = b[2];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = nVec[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = tVec[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][2]","data->R[i][2] = bVec[0];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][3]","data->R[i][3] = nVec[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][4]","data->R[i][4] = tVec[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][5]","data->R[i][5] = bVec[1];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][6]","data->R[i][6] = nVec[2];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = tVec[2];");
+            findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = bVec[2];");
         }
 
         if (gP.grCoordType == CylindricalZ) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Y*Y);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Y, X);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R;","Float R = sqrt(X*X + Y*Y);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Ra;","Float Ra = sqrt(Xa*Xa + Ya*Ya);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rb;","Float Rb = sqrt(Xb*Xb + Yb*Yb);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rc;","Float Rc = sqrt(Xc*Xc + Yc*Yc);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta;","Float Theta = atan2(Y, X);");
 
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] =-sin(Theta);");
@@ -506,10 +515,13 @@ namespace LagSol {
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] = 0.0;");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 1.0;");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin;","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax;","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState;","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState;","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinStateT;","const unsigned int rMinStateT = (fabs(Ra - rMin) < tol) && (fabs(Rb - rMin) < tol) && (fabs(Rc - rMin) < tol);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxStateT;","const unsigned int rMaxStateT = (fabs(Ra - rMax) < tol) && (fabs(Rb - rMax) < tol) && (fabs(Rc - rMax) < tol);");
+
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
                                         "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
@@ -521,19 +533,28 @@ namespace LagSol {
                                         "\n\t\t\t(bcTypeMinAxis1==2) * zMinState * ax1Constraint |"
                                         "\n\t\t\t(bcTypeMaxAxis1==2) * zMaxState * ax1Constraint;");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r","Vector r = Vector(x, y, 0.0).safe_normal();");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt","Tensor rrt(r);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt = Tensor::eye() - rrt - zzt;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Vector r;","Vector r = Vector(x, y, 0.0).safe_normal();");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor rrt;","Tensor rrt(r);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt;","Tensor ppt = Tensor::eye() - rrt - zzt;");
             findAndReplaceToEndOfLine(kernelContent,
-                "/* default */Tensor proj","Tensor proj = "
+                "/* default */Tensor proj;","Tensor proj = "
                                         "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
                                         "\n\t\t\t zzt * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
+
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += rMinStateT * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += rMaxStateT * ("+gP.extLoadMaxAxis0+std::string(");"));
+            if (gP.bcTypeMinAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMinState","data->extLoad[i] += zMinState  * ("+gP.extLoadMinAxis1+std::string(");"));
+            if (gP.bcTypeMaxAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMaxState","data->extLoad[i] += zMaxState  * ("+gP.extLoadMaxAxis1+std::string(");"));
+
         }
 
         if (gP.grCoordType == CylindricalY) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Z*Z);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Z, X);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R;","Float R = sqrt(X*X + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Ra;","Float Ra = sqrt(Xa*Xa + Za*Za);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rb;","Float Rb = sqrt(Xb*Xb + Zb*Zb);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rc;","Float Rc = sqrt(Xc*Xc + Zc*Zc);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta;","Float Theta = atan2(Z, X);");
 
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] = 0.0;");
@@ -546,10 +567,13 @@ namespace LagSol {
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = cos(Theta);");
 
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin;","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax;","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState;","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState;","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinStateT;","const unsigned int rMinStateT = (fabs(Ra - rMin) < tol) && (fabs(Rb - rMin) < tol) && (fabs(Rc - rMin) < tol);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxStateT;","const unsigned int rMaxStateT = (fabs(Ra - rMax) < tol) && (fabs(Rb - rMax) < tol) && (fabs(Rc - rMax) < tol);");
+
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
                                         "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
@@ -570,12 +594,19 @@ namespace LagSol {
                                         "\n\t\t\t yyt * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
 
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += rMinStateT * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += rMaxStateT * ("+gP.extLoadMaxAxis0+std::string(");"));
+            if (gP.bcTypeMinAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMinState","data->extLoad[i] += yMinState  * ("+gP.extLoadMinAxis1+std::string(");"));
+            if (gP.bcTypeMaxAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMaxState","data->extLoad[i] += yMaxState  * ("+gP.extLoadMaxAxis1+std::string(");"));
         }
 
         if (gP.grCoordType == ConeAdapted) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Z*Z);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(Z, X);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float hapex","Float hapex = " + std::to_string(gP.apex*0.5) + std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R;","Float R = sqrt(X*X + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Ra;","Float Ra = sqrt(Xa*Xa + Za*Za);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rb;","Float Rb = sqrt(Xb*Xb + Zb*Zb);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rc;","Float Rc = sqrt(Xc*Xc + Zc*Zc);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta;","Float Theta = atan2(Z, X);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float hapex;","Float hapex = " + std::to_string(gP.apex*0.5) + std::string(";"));
 
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][0]","data->R[i][0] = cos(hapex) * cos(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][1]","data->R[i][1] =-sin(hapex) * cos(Theta);");
@@ -587,10 +618,20 @@ namespace LagSol {
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(hapex) * sin(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = cos(Theta);");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = max("+std::to_string(gP.rRefMin)+std::string(" - Y * tan(hapex),Float(0.0));"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = max("+std::to_string(gP.rRefMax)+std::string(" - Y * tan(hapex),Float(0.0));"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin;","Float rMin = max("+std::to_string(gP.rRefMin)+std::string(" - Y * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax;","Float rMax = max("+std::to_string(gP.rRefMax)+std::string(" - Y * tan(hapex),Float(0.0));"));
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMina;","Float rMina = max("+std::to_string(gP.rRefMin)+std::string(" - Ya * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMinb;","Float rMinb = max("+std::to_string(gP.rRefMin)+std::string(" - Yb * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMinc;","Float rMinc = max("+std::to_string(gP.rRefMin)+std::string(" - Yc * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMaxa;","Float rMaxa = max("+std::to_string(gP.rRefMax)+std::string(" - Ya * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMaxb;","Float rMaxb = max("+std::to_string(gP.rRefMax)+std::string(" - Yb * tan(hapex),Float(0.0));"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMaxc;","Float rMaxc = max("+std::to_string(gP.rRefMax)+std::string(" - Yc * tan(hapex),Float(0.0));"));
+
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState;","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState;","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinStateT;","const unsigned int rMinStateT = (fabs(Ra - rMina) < tol) && (fabs(Rb - rMinb) < tol) && (fabs(Rc - rMinc) < tol);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxStateT;","const unsigned int rMaxStateT = (fabs(Ra - rMaxa) < tol) && (fabs(Rb - rMaxb) < tol) && (fabs(Rc - rMaxc) < tol);");
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
                                         "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
@@ -602,19 +643,27 @@ namespace LagSol {
                                         "\n\t\t\t(bcTypeMinAxis1==2) * yMinState * ax1Constraint |"
                                         "\n\t\t\t(bcTypeMaxAxis1==2) * yMaxState * ax1Constraint;");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float theta","Float theta = atan2(z, x);");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor nnt","Tensor nnt(cos(hapex) * cos(theta), sin(hapex), cos(hapex) * sin(theta));");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor aat","Tensor aat(-sin(hapex) * cos(theta), cos(hapex), -sin(hapex) * sin(theta)); if ((bcState.x & 1u) == 0 && (bcState.x & 2u) > 0 && (bcState.x & 4u) == 0) { aat = yyt; };");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt","Tensor ppt = Tensor::eye() - nnt - aat;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float theta;","Float theta = atan2(z, x);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor nnt;","Tensor nnt(cos(hapex) * cos(theta), sin(hapex), cos(hapex) * sin(theta));");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor aat;","Tensor aat(-sin(hapex) * cos(theta), cos(hapex), -sin(hapex) * sin(theta)); if ((bcState.x & 1u) == 0 && (bcState.x & 2u) > 0 && (bcState.x & 4u) == 0) { aat = yyt; };");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Tensor ppt;","Tensor ppt = Tensor::eye() - nnt - aat;");
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default */Tensor proj","Tensor proj = "
                                         "\n\t\t\t nnt * Float((bcState.x & 1u) > 0) +"
                                         "\n\t\t\t aat * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t ppt * Float((bcState.x & 4u) > 0);");
+
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += rMinStateT * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += rMaxStateT * ("+gP.extLoadMaxAxis0+std::string(");"));
+            if (gP.bcTypeMinAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMinState","data->extLoad[i] += yMinState  * ("+gP.extLoadMinAxis1+std::string(");"));
+            if (gP.bcTypeMaxAxis1 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += yMaxState","data->extLoad[i] += yMaxState  * ("+gP.extLoadMaxAxis1+std::string(");"));
         }
 
         if (gP.grCoordType == Spherical) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt(X*X + Y*Y + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R;","Float R = sqrt(X*X + Y*Y + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Ra;","Float Ra = sqrt(Xa*Xa + Ya*Ya + Za*Za);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rb;","Float Rb = sqrt(Xb*Xb + Yb*Yb + Zb*Zb);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rc;","Float Rc = sqrt(Xc*Xc + Yc*Yc + Zc*Zc);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(sqrt(X*X+Y*Y), Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Phi","Float Phi = atan2(Y, X);");
 
@@ -628,10 +677,13 @@ namespace LagSol {
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 0.0;");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin;","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax;","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState;","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState;","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinStateT;","const unsigned int rMinStateT = (fabs(Ra - rMin) < tol) && (fabs(Rb - rMin) < tol) && (fabs(Rc - rMin) < tol);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxStateT;","const unsigned int rMaxStateT = (fabs(Ra - rMax) < tol) && (fabs(Rb - rMax) < tol) && (fabs(Rc - rMax) < tol);");
+
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
                                         "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
@@ -648,10 +700,16 @@ namespace LagSol {
                                         "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
                                         "\n\t\t\t ppt * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t (Tensor::eye() - rrt - ppt) * Float((bcState.x & 4u) > 0);");
+
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += rMinStateT * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += rMaxStateT * ("+gP.extLoadMaxAxis0+std::string(");"));
         }
 
         if (gP.grCoordType == Toroidal) {
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R","Float R = sqrt((sqrt(X*X+Y*Y)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(X*X+Y*Y)-Float("+std::to_string(gP.RTorus)+")) + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float R;","Float R = sqrt((sqrt(X*X+Y*Y)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(X*X+Y*Y)-Float("+std::to_string(gP.RTorus)+")) + Z*Z);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Ra;","Float Ra = sqrt((sqrt(Xa*Xa+Ya*Ya)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(Xa*Xa+Ya*Ya)-Float("+std::to_string(gP.RTorus)+")) + Za*Za);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rb;","Float Rb = sqrt((sqrt(Xb*Xb+Yb*Yb)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(Xb*Xb+Yb*Yb)-Float("+std::to_string(gP.RTorus)+")) + Zb*Zb);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Rc;","Float Rc = sqrt((sqrt(Xc*Xc+Yc*Yc)- Float("+std::to_string(gP.RTorus)+")) * (sqrt(Xc*Xc+Yc*Yc)-Float("+std::to_string(gP.RTorus)+")) + Zc*Zc);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Theta","Float Theta = atan2(sqrt(X*X+Y*Y) - Float("+std::to_string(gP.RTorus)+"), Z);");
             findAndReplaceToEndOfLine(kernelContent, "/* default *///Float Phi",std::string("Float Phi = atan2(Y, X);"));
 
@@ -665,10 +723,12 @@ namespace LagSol {
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][7]","data->R[i][7] =-sin(Theta);");
             findAndReplaceToEndOfLine(kernelContent, "/* default */data->R[i][8]","data->R[i][8] = 0.0;");
 
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState","const unsigned int rMinState = fabs(R - rMin) < tol;");
-            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMin;","Float rMin = "+std::to_string(gP.rRefMin)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///Float rMax;","Float rMax = "+std::to_string(gP.rRefMax)+std::string(";"));
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinState;","const unsigned int rMinState = fabs(R - rMin) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxState;","const unsigned int rMaxState = fabs(R - rMax) < tol;");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMinStateT;","const unsigned int rMinStateT = (fabs(Ra - rMin) < tol) && (fabs(Rb - rMin) < tol) && (fabs(Rc - rMin) < tol);");
+            findAndReplaceToEndOfLine(kernelContent, "/* default *///const unsigned int rMaxStateT;","const unsigned int rMaxStateT = (fabs(Ra - rMax) < tol) && (fabs(Rb - rMax) < tol) && (fabs(Rc - rMax) < tol);");
             findAndReplaceToEndOfLine(kernelContent,
                 "/* default *///unsigned int bcState","unsigned int bcState = "
                                         "\n\t\t\t(bcTypeMinAxis0==1) * rMinState * (ax0Constraint | ax1Constraint | ax2Constraint) |"
@@ -696,6 +756,9 @@ namespace LagSol {
                                         "\n\t\t\t rrt * Float((bcState.x & 1u) > 0) +"
                                         "\n\t\t\t ppt * Float((bcState.x & 2u) > 0) +"
                                         "\n\t\t\t (Tensor::eye() - rrt - ppt) * Float((bcState.x & 4u) > 0);");
+
+            if (gP.bcTypeMinAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMinState","data->extLoad[i] += rMinStateT * ("+gP.extLoadMinAxis0+std::string(");"));
+            if (gP.bcTypeMaxAxis0 == 0) findAndReplaceToEndOfLine(kernelContent, "/* default */// data->extLoad[i] += xMaxState","data->extLoad[i] += rMaxStateT * ("+gP.extLoadMaxAxis0+std::string(");"));
         }
 
         saveFile(pathToKernel + "/" + outputName,kernelContent);
@@ -718,6 +781,7 @@ namespace LagSol {
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(enforceBC_nvrtc.name, "_nvrtc", "_default")+".cu",enforceBC_nvrtc.name+".cu", mesh.nlay);
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_critical_timestep_nvrtc.name, "_nvrtc", "_default")+".cu",compute_critical_timestep_nvrtc.name+".cu", mesh.nlay);
         generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_for_vis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_for_vis_nvrtc.name+".cu", mesh.nlay);
+        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_ext_load_nvrtc.name, "_nvrtc", "_default")+".cu",compute_ext_load_nvrtc.name+".cu", mesh.nlay);
 
         _LOAD_NVRTC(compute_force_nvrtc,             kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_orthogonal_basis_nvrtc,  kernelCount++, pathToKernel);
@@ -725,13 +789,15 @@ namespace LagSol {
         _LOAD_NVRTC(enforceBC_nvrtc,                 kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_critical_timestep_nvrtc, kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_for_vis_nvrtc,           kernelCount++, pathToKernel);
+        _LOAD_NVRTC(compute_ext_load_nvrtc,          kernelCount++, pathToKernel);
 
         return compute_force_nvrtc.kernel != nullptr &&
             compute_orthogonal_basis_nvrtc.kernel != nullptr &&
             compute_bids_nvrtc.kernel != nullptr &&
             enforceBC_nvrtc.kernel != nullptr &&
             compute_for_vis_nvrtc.kernel != nullptr &&
-            compute_critical_timestep_nvrtc.kernel != nullptr;
+            compute_critical_timestep_nvrtc.kernel != nullptr &&
+            compute_ext_load_nvrtc.kernel != nullptr;
     }
     void init(bool fromMesh) {
         if (fromMesh) {
@@ -786,12 +852,16 @@ namespace LagSol {
 
         data.vol.assign(mesh.nver, 0.0f);
         cudaDeviceSynchronize();
-        // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
         Float tempFloat = bcTol*spacing;
         _LAUNCH_NVRTC(mesh.nver, 256, compute_bids_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.nver});
-        // _LUNCH(mesh.ntet, 256, compute_mechanical_parameters) (dataPtr, minPosRef, maxPosRef, mesh.ntet);
+        cudaDeviceSynchronize();
+        _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &globalTime, &tempFloat, &mesh.ntri});
+        cudaDeviceSynchronize();
+
         _LAUNCH(mesh.ntet, 256, compute_volume) (dataPtr, mesh.ntet);
         cudaDeviceSynchronize();
+        data.volRef = data.vol;
+
 
         ScalarArrayDev tempArray = data.tetVol;
         thrust::sort(tempArray.begin(), tempArray.end());
@@ -834,7 +904,7 @@ namespace LagSol {
 
         _REMAP(seqIdF,data.boundaryFacePos);
         _REMAP(seqIdF,data.boundaryFaceR);
-        _REMAP(seqIdF,data.tri);
+        _REMAP(seqIdF,data.tri_only_contact);
 
         thrust::device_vector<Int> bNgbIds;    // This array contains the index of the branches neighbors. Branches are recognized as neighbor if their bounding volume intersects.
         thrust::device_vector<Int> bNgbSize;   // This array contains the the number of neighbors for each branch.
@@ -987,14 +1057,20 @@ namespace LagSol {
 
         data.force.assign(mesh.nver, Vector(0.0));
         cudaDeviceSynchronize();
-        _LAUNCH_NVRTC(mesh.ntet, 32, compute_force_nvrtc.kernel, {&dataPtr, &dt, &globalTime, &mesh.ntet});
+        _LAUNCH_NVRTC(mesh.ntet, 32, compute_force_nvrtc.kernel, {&dataPtr, &gP.useFbar, &dt, &globalTime, &mesh.ntet});
         cudaDeviceSynchronize();
         _LAUNCH(mesh.nnbd, 64, compute_contact_force) (dataPtr, spacing, contactFact, contactFactVel, repThickness, mesh.nnbd);
         cudaDeviceSynchronize();
-        _LAUNCH(mesh.nver, 256, update_vel) (dataPtr, dt, mesh.nver);
+
+        Float tempFloat = bcTol*spacing;
+        _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &globalTime, &tempFloat, &mesh.ntri});
+        cudaDeviceSynchronize();
+        //_LAUNCH(mesh.ntri, 256, enforce_ext_load_nvrtc) (dataPtr, mesh.ntri);
+        //cudaDeviceSynchronize();
+        
+        _LAUNCH(mesh.nver, 256, update_vel) (dataPtr, gP.damping, dt, mesh.nver);
         cudaDeviceSynchronize();
         _LAUNCH_NVRTC(mesh.nver, 256, enforceBC_nvrtc.kernel, {&dataPtr, &mesh.nver});
-        // _LAUNCH(mesh.nver,256, enforceBC) (dataPtr, mesh.nver);
         cudaDeviceSynchronize();
         if (!gP.isAnchored()) {
             _LAUNCH(mesh.nver, 256, enforce_anchored) (dataPtr, dt, mesh.nver);

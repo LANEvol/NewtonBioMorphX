@@ -76,6 +76,7 @@ namespace LagSol {
         int nfac;
         int nnbd;
         int nlay;
+
         Eigen::Array<Float, Eigen::Dynamic, 3, Eigen::RowMajor> pos;
         Eigen::Array<Float, Eigen::Dynamic, 3, Eigen::RowMajor> posRef; // reference coordinate
         Eigen::Array<Float, Eigen::Dynamic, 3, Eigen::RowMajor> vel; // velocity

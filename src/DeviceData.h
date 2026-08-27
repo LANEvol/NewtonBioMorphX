@@ -58,7 +58,9 @@ namespace LagSol {
 
         Int4ArrayDev tet;
         Int3ArrayDev tri;
+        Int3ArrayDev tri_only_contact;
         Int3ArrayDev fac;
+        IntArrayDev tri2tet;
 
         IntArrayDev isRigid;
         UInt2ArrayDev bcState;
@@ -69,7 +71,7 @@ namespace LagSol {
         CharArrayDev bidsYMin;
         CharArrayDev bidsZMin;
 
-        VectorArrayDev tempVec1;
+        VectorArrayDev extLoad;
         VectorArrayDev tempVec2;
         VectorArrayDev tempVec3;
         VectorArrayDev tempVec4;
@@ -91,6 +93,7 @@ namespace LagSol {
         TensorArrayDev stress;
         IntArrayDev layer;
         ScalarArrayDev vol;
+        ScalarArrayDev volRef;
         ScalarArrayDev tetQual;
         ScalarArrayDev potEnergy;
         ScalarArrayDev kEnergy;

@@ -158,6 +158,34 @@ bool ButtonCenteredOnLine(const char* label, float alignment = 0.5f) {
     return ImGui::Button(label);
 }
 
+inline bool DelayedTooltip(const std::string& text, const double& delay = 0.4) {
+    using clock = std::chrono::steady_clock;
+
+    // One timer per item ID
+    static std::unordered_map<ImGuiID, clock::time_point> hover_start_map;
+
+    ImGuiID id = ImGui::GetItemID();
+    if (id == 0)
+        return false; // item has no ID → cannot track it
+    auto& hover_start = hover_start_map[id];
+
+    if (ImGui::IsItemHovered()) {
+        if (hover_start == clock::time_point{})
+            hover_start = clock::now();   // first hover moment
+
+        double elapsed = std::chrono::duration_cast<std::chrono::seconds>(clock::now() - hover_start).count();
+        if (elapsed > delay) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted(text.c_str());
+            ImGui::EndTooltip();
+        }
+        return true;
+    } else {
+        hover_start = clock::time_point{};  // reset when hover ends
+        return false;
+    }
+}
+
 bool inline ImGuiMessage(const bool& cond, const std::string& title, const std::string& str) {
     bool res = false;
     if (cond)
@@ -215,30 +243,73 @@ void inline ImGuiParamReadRow(const std::string& lable, std::string &expression 
     std::fill_n(buf, 1024, 0);
     std::copy_n(expression.begin(), std::min(bufSize, (int) expression.size()), buf);
 
-    if (!meshDefAvailable)
-        IMGUI_DISABLE_WIDGET
-    if (ImGui::Checkbox(("##File"+lable).c_str(), &useMeshDef))
-        paramChanged = true;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(("Use mesh file data for "+lable).c_str());
-    if (!meshDefAvailable)
-        IMGUI_ENABLE_WIDGET
+    if (meshDefAvailable) {
+        if (ImGui::Checkbox(("##File"+lable).c_str(), &useMeshDef))
+            paramChanged = true;
+        DelayedTooltip("Use mesh file data for "+lable, 0.1);
+        ImGui::SameLine();
+    }
 
-
-    ImGui::SameLine();
-
-    if (useMeshDef && meshDefAvailable)
-        IMGUI_DISABLE_WIDGET
+    if (useMeshDef && meshDefAvailable) IMGUI_DISABLE_WIDGET
 
     if (ImGui::InputTextEx(("##"+lable).c_str(), NULL, buf, bufSize, ImVec2(-1,0), ImGuiInputTextFlags_CtrlEnterForNewLine)) {
         expression = std::string(buf);
         paramChanged = true;
     }
-    if (useMeshDef && meshDefAvailable)
-        IMGUI_ENABLE_WIDGET
+
+    if (useMeshDef && meshDefAvailable) IMGUI_ENABLE_WIDGET
 
 }
 
+void inline ImGuiParamRead(const std::string& lable, std::string &expression, bool& paramChanged) {
+    char smallBuf[64] = "";
+    char bigBuf[2048] = "";
+    std::copy_n(expression.begin(), std::min(sizeof(smallBuf) - 1, expression.size()), smallBuf);
+
+    ImGui::SameLine();
+    ImGui::SetWindowFontScale(0.70f);
+    ImGui::InputText(("##small"+lable).c_str(), smallBuf, sizeof(smallBuf), ImGuiInputTextFlags_ReadOnly);
+    ImGui::SetWindowFontScale(1.0f);
+    if (ImGui::IsItemActivated()) {        // When clicked, open the big editor
+        ImGui::OpenPopup(lable.c_str());
+    }
+
+    if (ImGui::BeginPopup(lable.c_str())) {
+        std::copy_n(expression.begin(), std::min(sizeof(bigBuf) - 1, expression.size()), bigBuf);
+        if (ImGui::InputTextMultiline(("##big"+lable).c_str(), bigBuf, sizeof(bigBuf), ImVec2(400, 200))) {
+            expression = std::string(bigBuf);
+            paramChanged = true;
+        }
+        ImGui::EndPopup();
+    }
+}
+
+bool hasNonZeroVectorString(std::string input) {
+    // Remove each known substring wherever it appears
+    std::vector<std::string> toRemove = {"Vector","(",")",",",".","+","-","/","*"};
+    for (const auto& pat : toRemove) {
+        std::size_t pos = 0;
+        while ((pos = input.find(pat, pos)) != std::string::npos) {
+            input.erase(pos, pat.size());
+        }
+    }
+
+    // Remove ALL whitespace characters
+    input.erase(
+        std::remove_if(input.begin(), input.end(),
+                       [](unsigned char c){ return std::isspace(c); }),
+        input.end()
+    );
+
+    // Check remaining characters
+    for (char c : input) {
+        if (c != '0') {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 VectorArrayEigen computeMaxEigenvectors_mapped(const TensorArrayEigen& mats) {
     using Mat3 = Eigen::Matrix<Float, 3, 3, Eigen::RowMajor>;
@@ -456,7 +527,8 @@ int main(int argc, char** argv) {
         // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
         Float tempFloat = bcTol*spacing;
         _LAUNCH_NVRTC(mesh.nver, 256, compute_bids_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.nver});
-
+        cudaDeviceSynchronize();
+        _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.ntri});
         cudaDeviceSynchronize();
 
         ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
@@ -1182,8 +1254,7 @@ int main(int argc, char** argv) {
             float wW = ImGui::GetContentRegionAvail().x;
             float wP = ImGui::GetStyle().FramePadding.x;
 
-            if (run)
-                IMGUI_DISABLE_WIDGET
+            if (run) IMGUI_DISABLE_WIDGET
 
             if (ImGui::Button("Load project", ImVec2((wW - wP) * 0.5f, 0))) {
                 std::string fname = igl::file_dialog_open();
@@ -1213,7 +1284,47 @@ int main(int argc, char** argv) {
                 }
             }
 
+            if (run) IMGUI_ENABLE_WIDGET
+
             if (ImGui::CollapsingHeader("Generate mesh")) {
+                if (run) IMGUI_DISABLE_WIDGET
+                if (ImGui::TreeNode("Presets")) {
+                    std::vector<std::tuple<std::string, std::string, std::string>> presets = {
+                        {"1. Elastic box with tangential growth",         "../examples/box_growth.txt",                   "Elastic box with tangential growth"},
+                        {"2. Plastic box with active tensile filaments",  "../examples/box_tensile_force_spine.txt",      "Plastic box with active tensile filaments (actin) -> Spine"},
+                        {"3. Elastic disk with radial growth",            "../examples/disk_growth_to_cone.txt",          "Elastic disk with radial growth -> Cone"},
+                        {"4. Elastic tube with circumferential growth",   "../examples/cylinder_theta_growth.txt",        "Elastic tube with circumferential growth"},
+                        {"5. Elastic tube with growth & collagen fibers", "../examples/cylinder_croc.txt",                "Elastic tube with isotropic growth & collagen fibers -> Crocodile pattern"},
+                        {"6. Elastic cone with circumferential growth",   "../examples/cone_theta_growth.txt",            "Elastic cone with circumferential growth"},
+                        {"7. Elastic sphere with tangential growth",      "../examples/sphere_growth.txt",                "Three-layered elastic sphere with rigid middle layer and\n   tangential growth of inner & outer layers."},
+                        {"8. Two-layered elastic sphere growth 1",        "../examples/sphere_invagination.txt",          "Two-layered elastic sphere with orthogonal growth directions -> pseudo-torus"},
+                        {"9. Two-layered elastic sphere growth 2",        "../examples/sphere_invagination_2.txt",        "Two-layered elastic sphere with inner & outer growth"},
+                        {"10. Elastic sphere with periodic growth 1",     "../examples/sphere_invagination_hexagon.txt",  "Elastic sphere with periodic growth -> Hexagonal fruit"},
+                        {"11. Elastic sphere with periodic growth 2",     "../examples/sphere_croissant.txt",             "Elastic sphere with periodic growth -> Croissant"},
+                        {"12. Elastic torus",                             "../examples/torus.txt",                        "Elastic torus"},
+                    };
+                    static int item_selected_idx = -1; // Here we store our selected data as an index.
+                    if (ImGui::BeginListBox("##listbox 1", ImVec2(-1, 0))) {
+                        for (int n = 0; n < presets.size(); n++) {
+                            const bool is_selected = (item_selected_idx == n);
+                            if (ImGui::Selectable(std::get<0>(presets[n]).c_str(), is_selected)) {
+                                item_selected_idx = n;
+                                modelChanged = true;
+                                basisChanged = true;
+                                firstTimeSetMeshToViewer = true;
+                                readSetting((exec_path+"/"+std::get<1>(presets[n])).c_str());
+                            }
+                            DelayedTooltip(std::get<2>(presets[n]));
+
+                            // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                            if (is_selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndListBox();
+                    }
+                    ImGui::TreePop();
+                }
+
                 ImGui::Separator();
                 ImGui::Columns(2, "Geometry Columns", false);
                 if (ImGui::RadioButton("Box", reinterpret_cast<int *>(&inputGeom), Box)) {
@@ -1498,55 +1609,10 @@ int main(int argc, char** argv) {
                     }
                     ImGui::EndTable();
                 }
-                ImGui::Separator();
-                if (ImGui::TreeNode("Presets")) {
-                    std::vector<std::tuple<std::string, std::string, std::string>> presets = {
-                        {"1. Elastic box with tangential growth",         "../examples/box_growth.txt",                   "Elastic box with tangential growth"},
-                        {"2. Plastic box with active tensile filaments",  "../examples/box_tensile_force_spine.txt",      "Plastic box with active tensile filaments (actin)\n   -> Spine"},
-                        {"3. Elastic disk with radial growth",            "../examples/disk_growth_to_cone.txt",          "Elastic disk with radial growth -> Cone"},
-                        {"4. Elastic tube with circumferential growth",   "../examples/cylinder_theta_growth.txt",        "Elastic tube with circumferential growth"},
-                        {"5. Elastic tube with growth & collagen fibers", "../examples/cylinder_croc.txt",                "Elastic tube with isotropic growth & collagen fibers\n   -> Crocodile pattern"},
-                        {"6. Elastic cone with circumferential growth",   "../examples/cone_theta_growth.txt",            "Elastic cone with circumferential growth"},
-                        {"7. Elastic sphere with tangential growth",      "../examples/sphere_growth.txt",                "Three-layered elastic sphere with rigid middle layer and\n   tangential growth of inner & outer layers."},
-                        {"8. Two-layered elastic sphere growth 1",        "../examples/sphere_invagination.txt",          "Two-layered elastic sphere with orthogonal growth \n   directions -> pseudo-torus"},
-                        {"9. Two-layered elastic sphere growth 2",        "../examples/sphere_invagination_2.txt",        "Two-layered elastic sphere with inner & outer growth"},
-                        {"10. Elastic sphere with periodic growth 1",     "../examples/sphere_invagination_hexagon.txt",  "Elastic sphere with periodic growth -> Hexagonal fruit"},
-                        {"11. Elastic sphere with periodic growth 2",     "../examples/sphere_croissant.txt",             "Elastic sphere with periodic growth -> Croissant"},
-                        {"12. Elastic torus",                             "../examples/torus.txt",                        "Elastic torus"},
-                    };
-                    static int item_selected_idx = -1; // Here we store our selected data as an index.
-
-                    static bool item_highlight = false;
-                    int item_highlighted_idx = -1; // Here we store our highlighted data as an index.
-                    if (ImGui::BeginListBox("##listbox 1", ImVec2(-1, 0))) {
-                        for (int n = 0; n < presets.size(); n++) {
-                            const bool is_selected = (item_selected_idx == n);
-                            if (ImGui::Selectable(std::get<0>(presets[n]).c_str(), is_selected)) {
-                                item_selected_idx = n;
-                                modelChanged = true;
-                                basisChanged = true;
-                                firstTimeSetMeshToViewer = true;
-                                readSetting((exec_path+"/"+std::get<1>(presets[n])).c_str());
-                            }
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip(std::get<2>(presets[n]).c_str());
-                                item_highlighted_idx = n;
-                            }
-
-                            // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-                            if (is_selected)
-                                ImGui::SetItemDefaultFocus();
-                        }
-                        ImGui::EndListBox();
-                    }
-                    ImGui::TreePop();
-                }
-
 
                 basisChanged = basisChanged || modelChanged;
 
-                if (!modelChanged)
-                    IMGUI_DISABLE_WIDGET
+                if (!modelChanged) IMGUI_DISABLE_WIDGET
 
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(0, 255, 0)));
                 applyChanges = ImGui::Button("Apply Changes", ImVec2(-1, 0)) || applyChanges;
@@ -1563,7 +1629,10 @@ int main(int argc, char** argv) {
                     ImGui::TextUnformatted("Generating mesh ... please wait");
                     compileFlag = true;
                 }
+                if (run) IMGUI_ENABLE_WIDGET
             }
+
+            if (run) IMGUI_DISABLE_WIDGET
 
             if (inputGeom == Box) {
                 nLayers = boxDims.nLayers;
@@ -1585,13 +1654,9 @@ int main(int argc, char** argv) {
                 gP.RTorus = torusDims.R;
             }
 
-            if (run) {
-                ImGui::PopItemFlag();
-                ImGui::PopStyleVar();
-            }
+            if (run) IMGUI_ENABLE_WIDGET
 
-            if (modelChanged)
-                IMGUI_DISABLE_WIDGET
+            if (modelChanged) IMGUI_DISABLE_WIDGET
 
 
             if (ImGui::CollapsingHeader("Coordinate basis")) {
@@ -1600,44 +1665,44 @@ int main(int argc, char** argv) {
                 basisChanged = ImGui::RadioButton("Normal/tangent", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::NormalTangent) || basisChanged;
                 basisChanged = ImGui::RadioButton("Cartesian", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Cartesian) || basisChanged;
 
-                float tmpfloat1 = float(gP.rRefMax);
-                float tmpfloat2[2] = {float(gP.rRefMin), float(gP.rRefMax)};
-                float tmpfloat3[3] = {float(gP.RTorus), float(gP.rRefMin), float(gP.rRefMax)};
+                // float tmpfloat1 = float(gP.rRefMax);
+                // float tmpfloat2[2] = {float(gP.rRefMin), float(gP.rRefMax)};
+                // float tmpfloat3[3] = {float(gP.RTorus), float(gP.rRefMin), float(gP.rRefMax)};
 
                 basisChanged = ImGui::RadioButton("Cylindrical Z", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::CylindricalZ) || basisChanged;
-                if (gP.grCoordType == CylindricalZ) {
-                    ImGui::SameLine();
-                    basisChanged = ImGui::InputFloat("Max r", &tmpfloat1) || basisChanged;
-                    gP.rRefMax = tmpfloat1;
-                }
+                // if (gP.grCoordType == CylindricalZ) {
+                //     ImGui::SameLine();
+                //     basisChanged = ImGui::InputFloat("Max r", &tmpfloat1) || basisChanged;
+                //     gP.rRefMax = tmpfloat1;
+                // }
 
                 basisChanged = ImGui::RadioButton("Cylindrical Y", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::CylindricalY) || basisChanged;
 
-                if (gP.grCoordType == CylindricalY) {
-                    ImGui::SameLine();
-                    basisChanged = ImGui::InputFloat2("Min/Max r", tmpfloat2) || basisChanged;
-                    gP.rRefMin = tmpfloat2[0]; gP.rRefMax = tmpfloat2[1];
-                }
+                // if (gP.grCoordType == CylindricalY) {
+                //     ImGui::SameLine();
+                //     basisChanged = ImGui::InputFloat2("Min/Max r", tmpfloat2) || basisChanged;
+                //     gP.rRefMin = tmpfloat2[0]; gP.rRefMax = tmpfloat2[1];
+                // }
 
                 ImGui::NextColumn();
 
                 basisChanged = ImGui::RadioButton("Cone adapted", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::ConeAdapted) || basisChanged;
-                if (gP.grCoordType == ConeAdapted) {
-                }
+                // if (gP.grCoordType == ConeAdapted) {
+                // }
 
                 basisChanged = ImGui::RadioButton("Spherical", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Spherical) || basisChanged;
-                if (gP.grCoordType == Spherical) {
-                    ImGui::SameLine();
-                    basisChanged = ImGui::InputFloat2("Min/Max r", tmpfloat2) || basisChanged;
-                    gP.rRefMin = tmpfloat2[0]; gP.rRefMax = tmpfloat2[1];
-                }
+                // if (gP.grCoordType == Spherical) {
+                //     ImGui::SameLine();
+                //     basisChanged = ImGui::InputFloat2("Min/Max r", tmpfloat2) || basisChanged;
+                //     gP.rRefMin = tmpfloat2[0]; gP.rRefMax = tmpfloat2[1];
+                // }
 
                 basisChanged = ImGui::RadioButton("Toroidal", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Toroidal) || basisChanged;
-                if (gP.grCoordType == Toroidal) {
-                    ImGui::SameLine();
-                    basisChanged = ImGui::InputFloat3("R, Min/Max r", tmpfloat3) || basisChanged;
-                    gP.RTorus = tmpfloat3[0]; gP.rRefMin = tmpfloat3[1]; gP.rRefMax = tmpfloat3[2];
-                }
+                // if (gP.grCoordType == Toroidal) {
+                //     ImGui::SameLine();
+                //     basisChanged = ImGui::InputFloat3("R, Min/Max r", tmpfloat3) || basisChanged;
+                //     gP.RTorus = tmpfloat3[0]; gP.rRefMin = tmpfloat3[1]; gP.rRefMax = tmpfloat3[2];
+                // }
 
                 paramChanged = basisChanged || paramChanged;
                 ImGui::Columns(1);
@@ -1663,8 +1728,7 @@ int main(int argc, char** argv) {
 
             paramChanged = ImGui::Checkbox("Rigid", &gP.isRigidLayer[selectedLayer]) || paramChanged;
 
-            if (gP.isRigidLayer[selectedLayer])
-                IMGUI_DISABLE_WIDGET
+            if (gP.isRigidLayer[selectedLayer]) IMGUI_DISABLE_WIDGET
 
             if (ImGui::CollapsingHeader("Isotropic property functions")) {
                 ImGui::SameLine();
@@ -1768,109 +1832,183 @@ int main(int argc, char** argv) {
                 ImGui::EndTable();
             }
 
-            if (gP.isRigidLayer[selectedLayer])
-                IMGUI_ENABLE_WIDGET
+            if (gP.isRigidLayer[selectedLayer]) IMGUI_ENABLE_WIDGET
 
             if (ImGui::CollapsingHeader("Boundary conditions")) {
-                ImGui::BeginTable("table2", 4);
+                const ImGuiTableFlags tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                                    ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp;
+                ImGui::BeginTable("table2", 4, tableFlags);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
+                ImGui::Text("Surface");
                 ImGui::TableNextColumn();
-                ImGui::Text("Free");
+                ImGui::Text("Traction");
                 ImGui::TableNextColumn();
                 ImGui::Text("Fixed");
                 ImGui::TableNextColumn();
-                ImGui::Text("Tangent slide");
+                ImGui::Text("Tangential slide");
+                bool tempBool;
                 if (gP.grCoordType == CoordinateSystem::Spherical || gP.grCoordType == CoordinateSystem::Toroidal) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Inner surface"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Inner"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xm fixed",   &gP.bcTypeMinAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm tangent", &gP.bcTypeMinAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Outer surface"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Outer"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xp fixed",   &gP.bcTypeMaxAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp tangent", &gP.bcTypeMaxAxis0, 2) || bcChanged;
+
                 } else if (gP.grCoordType == CoordinateSystem::CylindricalZ) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Outer surface"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Outer"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("1", gP.extLoadMaxAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xp fixed",   &gP.bcTypeMaxAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp tangent", &gP.bcTypeMaxAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Min Z plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Min Z"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("2", gP.extLoadMinAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##zm fixed",   &gP.bcTypeMinAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm tangent", &gP.bcTypeMinAxis1, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Max Z plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Max Z"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("3", gP.extLoadMaxAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis1, 2) || bcChanged;
 
                 } else if (gP.grCoordType == CoordinateSystem::CylindricalY  || gP.grCoordType == CoordinateSystem::ConeAdapted) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Inner surface"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Inner"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xm fixed",   &gP.bcTypeMinAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm tangent", &gP.bcTypeMinAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Outer surface"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Outer"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xp fixed",   &gP.bcTypeMaxAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp tangent", &gP.bcTypeMaxAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Min Y plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Min Y"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##zm fixed",   &gP.bcTypeMinAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm tangent", &gP.bcTypeMinAxis1, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Max Y plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Max Y"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis1, 2) || bcChanged;
 
                 } else {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Min X plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Min X"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
+
                     bcChanged = ImGui::RadioButton("##xm fixed",   &gP.bcTypeMinAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm tangent", &gP.bcTypeMinAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Max X plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Max X"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp fixed",   &gP.bcTypeMaxAxis0, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp tangent", &gP.bcTypeMaxAxis0, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Min Y plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##ym free",    &gP.bcTypeMinAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Min Y"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##ym free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##ym fixed",   &gP.bcTypeMinAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##ym tangent", &gP.bcTypeMinAxis1, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Max Y plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##yp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Max Y"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##yp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##yp fixed",   &gP.bcTypeMaxAxis1, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##yp tangent", &gP.bcTypeMaxAxis1, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Min Z plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis2, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Min Z"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis2, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis2 == 0) ImGuiParamRead("5", gP.extLoadMinAxis2 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis2) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm fixed",   &gP.bcTypeMinAxis2, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm tangent", &gP.bcTypeMinAxis2, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
-                    ImGui::Text("Max Z plane"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis2, 0) || bcChanged; ImGui::TableNextColumn();
+                    ImGui::Text("Max Z"); ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis2, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis2 == 0) ImGuiParamRead("6", gP.extLoadMaxAxis2 , bcChanged);
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis2) ? 1.0f : 0.0f), "free");
+                    ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis2, 1) || bcChanged; ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis2, 2) || bcChanged;
                 }
@@ -1888,6 +2026,9 @@ int main(int argc, char** argv) {
                 float fkinEnergyTol = kinEnergyTol;
                 ImGui::InputFloat("Minimum ΔE", &fkinEnergyTol, 1.0f, 1e-4f, "%.5e");
                 kinEnergyTol = std::max(fkinEnergyTol, 0.0f);
+                float damping = gP.damping;
+                ImGui::InputFloat("Damping", &damping, 1.0f, 1e-4f, "%.5e");
+                gP.damping = std::max(damping, 0.0f);
                 ImGui::InputFloat("Contact weight", &contactFact, 10.0f, 0.05f, "%.2f");
                 contactFact = std::max(contactFact, 0.0f);
                 // ImGui::InputFloat("Contact damping", &contactFactVel, 1.0f, 0.05f, "%.2f");
@@ -1896,6 +2037,7 @@ int main(int argc, char** argv) {
                 repThickness = std::max(repThickness, 0.0f);
                 ImGui::InputInt("Search iteration", &searchIter);
                 searchIter = std::max(searchIter, 0);
+                ImGui::Checkbox("Use F-bar formulation", &gP.useFbar);
             }
 
             // Draw options

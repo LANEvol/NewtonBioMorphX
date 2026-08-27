@@ -22,7 +22,7 @@ typedef unsigned int UInt32;
 typedef unsigned long UInt64;
 
 #define EXPONENTIAL_GROWTH_RATE_FUNCTION
-// #define DBL_PRECISION
+#define DBL_PRECISION
 
 #ifdef DBL_PRECISION
 typedef double Float;

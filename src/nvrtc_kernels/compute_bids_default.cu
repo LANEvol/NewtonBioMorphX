@@ -57,8 +57,8 @@ __global__ void compute_bids_nvrtc(DeviceDataPtr *data, Float tol, int nver) {
         const unsigned int yMaxState = fabs(data->posRef[i][1] - yMax) < tol;
         const unsigned int zMinState = fabs(data->posRef[i][2] - zMin) < tol;
         const unsigned int zMaxState = fabs(data->posRef[i][2] - zMax) < tol;
-        /* default *///const unsigned int rMinState = fabs(R - rMin) < tol;
-        /* default *///const unsigned int rMaxState = fabs(R - rMax) < tol;
+        /* default *///const unsigned int rMinState;
+        /* default *///const unsigned int rMaxState;
 
         /* default *///unsigned int bcState;
 

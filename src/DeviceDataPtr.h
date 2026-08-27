@@ -54,7 +54,9 @@
 
         int4* tet;
         int3* tri;
+        int3* tri_only_contact;
         int3* fac;
+        int* tri2tet;
 
         int* isRigid;
         uint2* bcState;
@@ -65,7 +67,7 @@
         char* bidsZMin;
         char* bidsZMax;
 
-        Vector* tempVec1;
+        Vector* extLoad;
         Vector* tempVec2;
         Vector* tempVec3;
         Vector* tempVec4;
@@ -102,6 +104,7 @@
         Float* nodalG;
         Float* nodalB;
         Float* vol;
+        Float* volRef;
         Float* tetQual;
         Float* potEnergy;
         Float* kEnergy;

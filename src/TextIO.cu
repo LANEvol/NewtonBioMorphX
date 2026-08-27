@@ -312,14 +312,22 @@ void readSetting(std::string fileName){
         if (token == std::string("contactFact")) ss >> contactFact;
         if (token == std::string("contactFactVel")) ss >> contactFactVel;
         if (token == std::string("repThickness")) ss >> repThickness;
-        if (token == std::string("grRateGlobal"))     ss >> gP.grRateGlobal[0] >> gP.grRateGlobal[1] >> gP.grRateGlobal[2] >>
-                                                              gP.grRateGlobal[3] >> gP.grRateGlobal[4] >> gP.grRateGlobal[5] >>
-                                                              gP.grRateGlobal[6] >> gP.grRateGlobal[7] >> gP.grRateGlobal[8];
         if (token == std::string("damping")) ss >> gP.damping;
+        if (token == std::string("useFbar")) ss >> gP.useFbar;
+        // if (token == std::string("grRateGlobal"))     ss >> gP.grRateGlobal[0] >> gP.grRateGlobal[1] >> gP.grRateGlobal[2] >>
+        //                                                       gP.grRateGlobal[3] >> gP.grRateGlobal[4] >> gP.grRateGlobal[5] >>
+        //                                                       gP.grRateGlobal[6] >> gP.grRateGlobal[7] >> gP.grRateGlobal[8];
         if (token == std::string("bcTypes")) ss >> gP.bcTypeMinAxis0 >> gP.bcTypeMaxAxis0 >>
-                          gP.bcTypeMinAxis1 >> gP.bcTypeMaxAxis1 >>
-                          gP.bcTypeMinAxis2 >> gP.bcTypeMaxAxis2;
+                                                     gP.bcTypeMinAxis1 >> gP.bcTypeMaxAxis1 >>
+                                                     gP.bcTypeMinAxis2 >> gP.bcTypeMaxAxis2;
 
+        if (token == std::string("extLoadMinAxis0")) {std::getline(ss, gP.extLoadMinAxis0); gP.extLoadMinAxis0 = trim(gP.extLoadMinAxis0, "= \t");};
+        if (token == std::string("extLoadMaxAxis0")) {std::getline(ss, gP.extLoadMaxAxis0); gP.extLoadMaxAxis0 = trim(gP.extLoadMaxAxis0, "= \t");};
+        if (token == std::string("extLoadMinAxis1")) {std::getline(ss, gP.extLoadMinAxis1); gP.extLoadMinAxis1 = trim(gP.extLoadMinAxis1, "= \t");};
+        if (token == std::string("extLoadMaxAxis1")) {std::getline(ss, gP.extLoadMaxAxis1); gP.extLoadMaxAxis1 = trim(gP.extLoadMaxAxis1, "= \t");};
+        if (token == std::string("extLoadMinAxis2")) {std::getline(ss, gP.extLoadMinAxis2); gP.extLoadMinAxis2 = trim(gP.extLoadMinAxis2, "= \t");};
+        if (token == std::string("extLoadMaxAxis2")) {std::getline(ss, gP.extLoadMaxAxis2); gP.extLoadMaxAxis2 = trim(gP.extLoadMaxAxis2, "= \t");};
+        
         if (token == std::string("Layer"))      ss >> i;
 
         if (token == std::string("isRigid"))    ss >> gP.isRigidLayer[i];
@@ -440,15 +448,23 @@ void writeSetting(std::string fileName) {
     ofile << "contactFact "<< contactFact << std::endl;
     ofile << "contactFactVel "<< contactFactVel << std::endl;
     ofile << "repThickness "<< repThickness << std::endl;
+    ofile << "damping "<< gP.damping << std::endl;
+    ofile << "useFbar "<< gP.useFbar << std::endl;
 
     // ofile << "grRateGlobal "<< gP.grRateGlobal[0] << " " << gP.grRateGlobal[1]<< " " << gP.grRateGlobal[2] << " "
     //                             << gP.grRateGlobal[3] << " " << gP.grRateGlobal[4]<< " " << gP.grRateGlobal[5] << " "
     //                             << gP.grRateGlobal[6] << " " << gP.grRateGlobal[7]<< " " << gP.grRateGlobal[8] << std::endl;
-    // ofile << "damping "<< gP.damping << std::endl;
 
     ofile << "bcTypes "<< gP.bcTypeMinAxis0 << " "<< gP.bcTypeMaxAxis0 << " " <<
                           gP.bcTypeMinAxis1 << " "<< gP.bcTypeMaxAxis1 << " " <<
                           gP.bcTypeMinAxis2 << " "<< gP.bcTypeMaxAxis2 << std::endl;
+
+    ofile <<"extLoadMinAxis0 " << gP.extLoadMinAxis0 << std::endl;
+    ofile <<"extLoadMaxAxis0 " << gP.extLoadMaxAxis0 << std::endl;
+    ofile <<"extLoadMinAxis1 " << gP.extLoadMinAxis1 << std::endl;
+    ofile <<"extLoadMaxAxis1 " << gP.extLoadMaxAxis1 << std::endl;
+    ofile <<"extLoadMinAxis2 " << gP.extLoadMinAxis2 << std::endl;
+    ofile <<"extLoadMaxAxis2 " << gP.extLoadMaxAxis2 << std::endl;
 
     for (int i=0; i<nLayers; i++) {
         ofile << "" << "Layer " << i << std::endl;

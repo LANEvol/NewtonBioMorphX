@@ -61,6 +61,8 @@ namespace LagSol {
 
         tet = Int4ArrayDev(std::vector<int4>(reinterpret_cast<int4*>(mesh.tet.data()),reinterpret_cast<int4*>(mesh.tet.data())+mesh.ntet));
         tri = Int3ArrayDev(std::vector<int3>(reinterpret_cast<int3*>(mesh.tri.data()),reinterpret_cast<int3*>(mesh.tri.data())+mesh.ntri));
+        tri_only_contact = Int3ArrayDev(std::vector<int3>(reinterpret_cast<int3*>(mesh.tri.data()),reinterpret_cast<int3*>(mesh.tri.data())+mesh.ntri));
+        tri2tet = IntArrayDev(std::vector<int>(reinterpret_cast<int*>(mesh.boundaryTetIds.data()),reinterpret_cast<int*>(mesh.boundaryTetIds.data())+mesh.ntri));
         fac = Int3ArrayDev(std::vector<int3>(reinterpret_cast<int3*>(mesh.fac.data()),reinterpret_cast<int3*>(mesh.fac.data())+mesh.nfac));
         layer = IntArrayDev(std::vector<int>(reinterpret_cast<int*>(mesh.layer.data()),reinterpret_cast<int*>(mesh.layer.data())+mesh.ntet));
 
@@ -68,7 +70,8 @@ namespace LagSol {
 
         mKey.resize(mesh.ntet);
 
-        tempVec1.resize(mesh.nver,Vector(0.0));
+        extLoad.resize(mesh.ntri,Vector(0.0));
+
         tempVec2.resize(mesh.nver,Vector(0.0));
         tempVec3.resize(mesh.nver,Vector(0.0));
         tempVec4.resize(mesh.nver,Vector(0.0));
@@ -144,6 +147,7 @@ namespace LagSol {
         Fp.resize(mesh.ntet, Tensor(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0));
         Fg.resize(mesh.ntet, Tensor(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0));
         vol.resize(mesh.nver,0.0);
+        volRef.resize(mesh.nver,0.0);
         tetQual.resize(mesh.ntet,0.0);
         potEnergy.resize(mesh.ntet,0.0);
         kEnergy.resize(mesh.nver,0.0);
@@ -200,7 +204,9 @@ namespace LagSol {
 
         _SET_POINTER(tet);
         _SET_POINTER(tri);
+        _SET_POINTER(tri_only_contact);
         _SET_POINTER(fac);
+        _SET_POINTER(tri2tet);
         _SET_POINTER(isRigid);
         _SET_POINTER(bcState);
         _SET_POINTER(bidsXMin);
@@ -210,7 +216,7 @@ namespace LagSol {
         _SET_POINTER(bidsZMin);
         _SET_POINTER(bidsZMax);
 
-        _SET_POINTER(tempVec1);
+        _SET_POINTER(extLoad);
         _SET_POINTER(tempVec2);
         _SET_POINTER(tempVec3);
         _SET_POINTER(tempVec4);
@@ -236,6 +242,7 @@ namespace LagSol {
         _SET_POINTER(Fp);
         _SET_POINTER(layer);
         _SET_POINTER(vol);
+        _SET_POINTER(volRef);
         _SET_POINTER(tetQual);
         _SET_POINTER(potEnergy);
         _SET_POINTER(kEnergy);

@@ -38,6 +38,15 @@ struct Parameters {
     Tensor grRateGlobal;
     Float damping;
 
+    std::string extLoadMinAxis0;
+    std::string extLoadMaxAxis0;
+    std::string extLoadMinAxis1;
+    std::string extLoadMaxAxis1;
+    std::string extLoadMinAxis2;
+    std::string extLoadMaxAxis2;
+
+
+
     bool useMeshDef_E;
     bool useMeshDef_nu;
     bool useMeshDef_viscosity;
@@ -53,8 +62,10 @@ struct Parameters {
     bool useMeshDef_fiber4_Ref;
     bool useMeshDef_actin_Ref;
 
+    bool useFbar;
+
     //Float growthRate;
-    int bcTypeMinAxis0; // 0 : free surface, 1 : no-slip, 2 : free-slip
+    int bcTypeMinAxis0; // 0 : free surface, 1 : no-slip, 2 : free-slip, -1 : external load
     int bcTypeMaxAxis0;
     int bcTypeMinAxis1;
     int bcTypeMaxAxis1;
@@ -94,6 +105,13 @@ struct Parameters {
         grRateGlobal = Tensor(0.0);
         damping = 0.0;
 
+        extLoadMinAxis0 = "Vector(0, 0, 0)";
+        extLoadMaxAxis0 = "Vector(0, 0, 0)";
+        extLoadMinAxis1 = "Vector(0, 0, 0)";
+        extLoadMaxAxis1 = "Vector(0, 0, 0)";
+        extLoadMinAxis2 = "Vector(0, 0, 0)";
+        extLoadMaxAxis2 = "Vector(0, 0, 0)";       
+
         useMeshDef_E = false;
         useMeshDef_nu = false;
         useMeshDef_viscosity = false;
@@ -109,7 +127,9 @@ struct Parameters {
         useMeshDef_fiber4_Ref = false;
         useMeshDef_actin_Ref = false;
 
-        bcTypeMinAxis0 = 0; // 0 : free, 1 : fixed, 2 : tangent-slide
+        useFbar = false;
+
+        bcTypeMinAxis0 = 0; // 0 : free surface, 1 : no-slip, 2 : free-slip, -1 : external load
         bcTypeMaxAxis0 = 0;
         bcTypeMinAxis1 = 0;
         bcTypeMaxAxis1 = 0;

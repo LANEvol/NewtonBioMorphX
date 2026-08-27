@@ -37,8 +37,8 @@ __global__ void enforceBC_nvrtc(DeviceDataPtr *data, int nver) {
         /* default *///Float hapex;
         /* default *///Float theta;
 
-        /* default *///Vector r;
         /* default *///Float phi;
+        /* default *///Vector r;
 
         /* default *///Tensor rrt;
         /* default *///Tensor nnt;

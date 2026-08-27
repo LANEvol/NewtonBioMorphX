@@ -26,7 +26,7 @@ __device__ Tensor get_fiber_stress(const Tensor &aaT, const Tensor &aaTRef, cons
 }
 
 extern "C"
-__global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int ntet) {
+__global__ void compute_force_nvrtc(DeviceDataPtr *data, bool useBbar, Float dt, Float t, int ntet) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < ntet) {
 
@@ -90,11 +90,11 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int 
         Float Y = tetCenterRef[1];
         Float Z = tetCenterRef[2];
 
-        /* default *///Float R = 0.0;
+        /* default *///Float R;
 
-        /* default *///Float Phi = 0.0;
+        /* default *///Float Phi;
 
-        /* default *///Float Theta = 0.0;
+        /* default *///Float Theta;
 //////////////////////////////////////////////
         /* default */Float E = 1.0;
         /* default */Float nu = 0.4;
@@ -135,10 +135,23 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int 
             Fe = U.dot(sigma_e).dot(V.trans());
             Tensor dFp = V.dot(sigma_p).dot(V.trans());
             data->Fp[i] = dFp.dot(data->Fp[i]);
+            data->Fp[i] = pow(Float(1/data->Fp[i].det()),Float(1.0/3.0)) * data->Fp[i];
         }
 
-        Float Je = Fe.det();
         Float Jg = Fg.det();
+        Float J = F.det();
+        if (useBbar) {
+            Float Ja = data->vol[a]/data->volRef[a];
+            Float Jb = data->vol[b]/data->volRef[b];
+            Float Jc = data->vol[c]/data->volRef[c];
+            Float Jd = data->vol[d]/data->volRef[d];
+            // J = (Ja + Jb + Jc + Jd) * 0.25;
+            J = pow(Ja * Jb * Jc * Jd, Float(0.25));
+            //J = 4.0/(1.0/Ja+1.0/Jb+1.0/Jc+1.0/Jd);
+            Fe = pow(Float(J/Jg/Fe.det()),Float(1.0/3.0)) * Fe;
+        }
+
+        Float Je = J/Jg;
 
         Tensor velGrad = dv.dot(dx.inv());
         Tensor Be = Fe.dot(Fe.trans());
@@ -169,8 +182,6 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, Float dt, Float t, int 
         fiber3_Ref = Rmat.dot(fiber3_Ref).dot(Rmat.trans());
         fiber4_Ref = Rmat.dot(fiber4_Ref).dot(Rmat.trans());
         actin_Ref = Rmat.dot(actin_Ref).dot(Rmat.trans());
-
-        Float J = F.det();
 
         if (k1>0 && fiber1_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber1_Ref).dot(F.trans()), fiber1_Ref, J, k1, k2);
         if (k1>0 && fiber2_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber2_Ref).dot(F.trans()), fiber2_Ref, J, k1, k2);
