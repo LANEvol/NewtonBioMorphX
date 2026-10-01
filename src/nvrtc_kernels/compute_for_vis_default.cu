@@ -17,7 +17,6 @@
 /* default */#include "../src/Primitives.h"
 /* default */#include "../src/DeviceDataPtr.h"
 /* default */#include "../src/SVD3Cuda.h"
-/* default */#include "cuda_runtime.h"
 
 extern "C"
 __global__ void compute_for_vis_nvrtc(DeviceDataPtr *data, Float t, int ntet) {
@@ -27,9 +26,6 @@ __global__ void compute_for_vis_nvrtc(DeviceDataPtr *data, Float t, int ntet) {
         int layer = data->layer[i] - 1;
 
         /* default */bool isRigid = false;
-
-        if (isRigid)
-            return;
 
         int a = data->tet[i].x;
         int b = data->tet[i].y;
@@ -82,7 +78,9 @@ __global__ void compute_for_vis_nvrtc(DeviceDataPtr *data, Float t, int ntet) {
         /* default */Float E = 1.0;
         /* default */Float nu = 0.4;
         /* default */Float visc = 0.0;
-        /* default */Float yMin = 0.0;
+        /* default */Float plasticity = 0.0;
+        /* default */Float k1 = 0.0; // fiber stiffness
+        /* default */Float k2 = 0.0; // fiber parameter
         /* default */Float grRate1_Ref = 0.0;
         /* default */Float grRate2_Ref = 0.0;
         /* default */Float grRate3_Ref = 0.0;
@@ -99,13 +97,19 @@ __global__ void compute_for_vis_nvrtc(DeviceDataPtr *data, Float t, int ntet) {
         Tensor grRateTens2(0,0,0,0,grRate2_Ref*grRate2_Ref,0,0,0,0);
         Tensor grRateTens3(0,0,0,0,0,0,0,0,grRate3_Ref*grRate3_Ref);
 
-        data->grRate1[i] = F.dot(Rmat.dot(grRateTens1).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0));
-        data->grRate2[i] = F.dot(Rmat.dot(grRateTens2).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0));
-        data->grRate3[i] = F.dot(Rmat.dot(grRateTens3).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0));
-        data->fiber1[i] = F.dot(Rmat.dot(fiber1_Ref).dot(Rmat.trans())).dot(F.trans());
-        data->fiber2[i] = F.dot(Rmat.dot(fiber2_Ref).dot(Rmat.trans())).dot(F.trans());
-        data->fiber3[i] = F.dot(Rmat.dot(fiber3_Ref).dot(Rmat.trans())).dot(F.trans());
-        data->fiber4[i] = F.dot(Rmat.dot(fiber4_Ref).dot(Rmat.trans())).dot(F.trans());
-        data->actin[i] = F.dot(Rmat.dot(actin_Ref).dot(Rmat.trans())).dot(F.trans());
+        data->grRate1[i] = F.dot(Rmat.dot(grRateTens1).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0)) * Float(!isRigid);
+        data->grRate2[i] = F.dot(Rmat.dot(grRateTens2).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0)) * Float(!isRigid);
+        data->grRate3[i] = F.dot(Rmat.dot(grRateTens3).dot(Rmat.trans())).dot(F.trans())*pow(J,Float(-2.0/3.0)) * Float(!isRigid);
+        data->fiber1[i] = F.dot(Rmat.dot(fiber1_Ref).dot(Rmat.trans())).dot(F.trans()) * Float(!isRigid);
+        data->fiber2[i] = F.dot(Rmat.dot(fiber2_Ref).dot(Rmat.trans())).dot(F.trans()) * Float(!isRigid);
+        data->fiber3[i] = F.dot(Rmat.dot(fiber3_Ref).dot(Rmat.trans())).dot(F.trans()) * Float(!isRigid);
+        data->fiber4[i] = F.dot(Rmat.dot(fiber4_Ref).dot(Rmat.trans())).dot(F.trans()) * Float(!isRigid);
+        data->actin[i] = F.dot(Rmat.dot(actin_Ref).dot(Rmat.trans())).dot(F.trans()) * Float(!isRigid);
+        data->E[i] = E * Float(!isRigid);
+        data->nu[i] = nu * Float(!isRigid);
+        data->visc[i] = visc * Float(!isRigid);
+        data->k1[i] = k1 * Float(!isRigid);
+        data->k2[i] = k2 * Float(!isRigid);
+        data->plasticity[i] = plasticity * Float(!isRigid);
     }
 }

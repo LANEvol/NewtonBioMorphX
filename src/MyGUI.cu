@@ -34,13 +34,36 @@
 
 #include <cuda_runtime.h>
 #include <string>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
+
+#include <string>
+#include <vector>
 
 std::string getExecutablePath() {
-    std::vector<char> buf(1024);
-    ssize_t len = readlink("/proc/self/exe", buf.data(), buf.size());
-    if (len == -1) return "";
-    return std::string(buf.data(), len);
+#ifdef _WIN32
+    std::vector<char> buffer(MAX_PATH);
+    DWORD len = GetModuleFileNameA(nullptr,buffer.data(), static_cast<DWORD>(buffer.size()));
+    while (len == buffer.size()) {
+        buffer.resize(buffer.size() * 2);
+        len = GetModuleFileNameA(nullptr,
+                                 buffer.data(),
+                                 static_cast<DWORD>(buffer.size()));
+    }
+    return std::string(buffer.data(), len);
+#else
+    std::vector<char> buffer(1024);
+    ssize_t len = readlink("/proc/self/exe",
+                           buffer.data(),
+                           buffer.size());
+    if (len == -1)
+        return "";
+    return std::string(buffer.data(), len);
+#endif
 }
 
 std::string detect_nvrtc_arch(int device_id = 0) {
@@ -90,7 +113,7 @@ std::string compileKernel(const std::string& kernelCode, const std::string& kern
     }
     std::string arch_opt = detect_nvrtc_arch();
     std::cout << "Detected architecture: " << arch_opt << std::endl;
-    const char *opts[] = {"--include-path=" CUDA_INCLUDE_PATH, "--disable-warnings", arch_opt.c_str()};
+    const char *opts[] = {"--include-path=""", "--disable-warnings", arch_opt.c_str()};
     nvrtcResult res = nvrtcCompileProgram(prog, 3, opts);
 
     // Print log if any
@@ -374,7 +397,7 @@ namespace LagSol {
         return true;
     }
 
-    void generate_nvrtc_kernel_source(const std::string& pathToKernel, const std::string& inputName, const std::string& outputName, int nLayers) {
+    std::string generate_nvrtc_kernel_source(const std::string& pathToKernel, const std::string& inputName, const std::string& outputName, int nLayers) {
         auto kernelContent = getFile(pathToKernel + "/" + inputName);
 
         findAndReplaceToEndOfLine(kernelContent, "/* default */#include \"../src/Typedefs.h\"",  "#include \"" + pathToKernel +"../../src/Typedefs.h\"");
@@ -762,6 +785,7 @@ namespace LagSol {
         }
 
         saveFile(pathToKernel + "/" + outputName,kernelContent);
+        return kernelContent;
     }
 
     bool compile() {
@@ -775,17 +799,19 @@ namespace LagSol {
         int kernelCount = 0;
         std::string pathToKernel = execDir+"/"+"../src/nvrtc_kernels/";
 
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_force_nvrtc.name, "_nvrtc", "_default")+".cu",compute_force_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_orthogonal_basis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_orthogonal_basis_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_bids_nvrtc.name, "_nvrtc", "_default")+".cu",compute_bids_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(enforceBC_nvrtc.name, "_nvrtc", "_default")+".cu",enforceBC_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_critical_timestep_nvrtc.name, "_nvrtc", "_default")+".cu",compute_critical_timestep_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_for_vis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_for_vis_nvrtc.name+".cu", mesh.nlay);
-        generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_ext_load_nvrtc.name, "_nvrtc", "_default")+".cu",compute_ext_load_nvrtc.name+".cu", mesh.nlay);
+        compute_force_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_force_nvrtc.name, "_nvrtc", "_default")+".cu",compute_force_nvrtc.name+".cu", mesh.nlay);
+        compute_orthogonal_basis_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_orthogonal_basis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_orthogonal_basis_nvrtc.name+".cu", mesh.nlay);
+        compute_bids_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_bids_nvrtc.name, "_nvrtc", "_default")+".cu",compute_bids_nvrtc.name+".cu", mesh.nlay);
+        mark_rigid_nodes_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(mark_rigid_nodes_nvrtc.name, "_nvrtc", "_default")+".cu",mark_rigid_nodes_nvrtc.name+".cu", mesh.nlay);
+        enforceBC_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(enforceBC_nvrtc.name, "_nvrtc", "_default")+".cu",enforceBC_nvrtc.name+".cu", mesh.nlay);
+        compute_critical_timestep_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_critical_timestep_nvrtc.name, "_nvrtc", "_default")+".cu",compute_critical_timestep_nvrtc.name+".cu", mesh.nlay);
+        compute_for_vis_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_for_vis_nvrtc.name, "_nvrtc", "_default")+".cu",compute_for_vis_nvrtc.name+".cu", mesh.nlay);
+        compute_ext_load_nvrtc.content = generate_nvrtc_kernel_source(pathToKernel,stringReplace(compute_ext_load_nvrtc.name, "_nvrtc", "_default")+".cu",compute_ext_load_nvrtc.name+".cu", mesh.nlay);
 
         _LOAD_NVRTC(compute_force_nvrtc,             kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_orthogonal_basis_nvrtc,  kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_bids_nvrtc,              kernelCount++, pathToKernel);
+        _LOAD_NVRTC(mark_rigid_nodes_nvrtc,          kernelCount++, pathToKernel);
         _LOAD_NVRTC(enforceBC_nvrtc,                 kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_critical_timestep_nvrtc, kernelCount++, pathToKernel);
         _LOAD_NVRTC(compute_for_vis_nvrtc,           kernelCount++, pathToKernel);
@@ -793,6 +819,7 @@ namespace LagSol {
 
         return compute_force_nvrtc.kernel != nullptr &&
             compute_orthogonal_basis_nvrtc.kernel != nullptr &&
+            mark_rigid_nodes_nvrtc.kernel != nullptr &&
             compute_bids_nvrtc.kernel != nullptr &&
             enforceBC_nvrtc.kernel != nullptr &&
             compute_for_vis_nvrtc.kernel != nullptr &&
@@ -810,6 +837,8 @@ namespace LagSol {
         data.Fg.assign(mesh.ntet, Tensor(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0));
         data.Fp.assign(mesh.ntet, Tensor(1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0));
         data.stress.assign(mesh.ntet, Tensor(0.0));
+        data.vonMises.assign(mesh.ntet, 0.0);
+        data.pressure.assign(mesh.ntet, 0.0);
         globalTime = 0.0f;
         frames = 0;
 
@@ -846,9 +875,13 @@ namespace LagSol {
         _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
         cudaDeviceSynchronize();
         _LAUNCH_NVRTC(mesh.ntet, 256, compute_orthogonal_basis_nvrtc.kernel, {&dataPtr, &mesh.ntet});
-        // _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
         cudaDeviceSynchronize();
         ///////////////////////////////////////////
+
+        data.isRigid.assign(mesh.nver, 0);
+        cudaDeviceSynchronize();
+        _LAUNCH_NVRTC(mesh.ntet, 256, mark_rigid_nodes_nvrtc.kernel, {&dataPtr, &mesh.ntet});
+        cudaDeviceSynchronize();
 
         data.vol.assign(mesh.nver, 0.0f);
         cudaDeviceSynchronize();
@@ -857,6 +890,9 @@ namespace LagSol {
         cudaDeviceSynchronize();
         _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &globalTime, &tempFloat, &mesh.ntri});
         cudaDeviceSynchronize();
+        _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
+        cudaDeviceSynchronize();
+
 
         _LAUNCH(mesh.ntet, 256, compute_volume) (dataPtr, mesh.ntet);
         cudaDeviceSynchronize();

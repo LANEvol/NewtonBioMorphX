@@ -16,9 +16,6 @@
 /* default */#include "../src/Typedefs.h"
 /* default */#include "../src/Primitives.h"
 /* default */#include "../src/DeviceDataPtr.h"
-/* default */
-
-#include "cuda_runtime.h"
 
 extern "C"
 __global__ void compute_ext_load_nvrtc(DeviceDataPtr *data, Float t, Float tol, int ntri) {

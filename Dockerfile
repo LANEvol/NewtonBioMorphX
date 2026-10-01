@@ -5,7 +5,6 @@ FROM nvidia/cuda:12.4.0-devel-ubuntu22.04
 # -------------------------------------------------------
 RUN apt-get update && apt-get install -y \
     build-essential \
-    cmake \
     gdb \
     git \
     pkg-config \
@@ -40,6 +39,8 @@ RUN apt-get update && apt-get install -y \
     libxft2 \
     libxinerama1 \
     && rm -rf /var/lib/apt/lists/*
+
+RUN pip install cmake
 
 RUN pip install --force-reinstall --no-cache-dir gmsh==4.15.2
 RUN ln /usr/local/lib/libgmsh.so.4.15 /usr/local/lib/libgmsh.so.4.15.2
@@ -76,17 +77,12 @@ RUN apt-get update && apt-get install -y \
     libvtk9-dev \
     && rm -rf /var/lib/apt/lists/*
 
-
 # -------------------------------------------------------
-# Workspace for CLion
+# AppImg for Linux deployment
 # -------------------------------------------------------
-WORKDIR /workspace
+RUN apt-get update && apt-get install -y \
+    strace \
+    patchelf \
+    squashfs-tools
 
-ADD cmake-build-release-docker_gpu/NewtonBioMorphX /usr/bin/NewtonBioMorphX
-ADD examples /usr/examples
-ADD share /usr/share
-ADD src/nvrtc_kernels /usr/src/nvrtc_kernels
-COPY src/Typedefs.h /usr/src/
-COPY src/Primitives.h /usr/src/
-COPY src/DeviceDataPtr.h /usr/src/
-COPY src/SVD3Cuda.h /usr/src/
+RUN pip install appimage-builder

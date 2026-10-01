@@ -46,7 +46,13 @@ namespace fs = std::filesystem;
 #include <Eigen/Core>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include "unistd.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "sys/stat.h"
 #include "MeshOp.h"
 
@@ -54,12 +60,25 @@ std::mutex mtx;
 std::condition_variable runSim;
 using namespace LagSol;
 
+std::filesystem::path getExecutableDir() {
+#ifdef _WIN32
+    char path[MAX_PATH];
+    DWORD len = GetModuleFileNameA(nullptr, path, MAX_PATH);
 
+    return std::filesystem::path(std::string(path, len)).parent_path();
+#else
+    return std::filesystem::canonical("/proc/self/exe").parent_path();
+#endif
+}
 //std::tuple<std::string, std::any, int> varName{"aaaa",&data.lamInt,-1};
 std::vector<std::tuple<std::string, std::any, int>> varNamesColor = {
     {"Layers", &data.layer,-1}, {"Velocity", &data.vel,-1},
     {"Shear stress", &data.vonMises,-1}, {"Pressure", &data.pressure,-1},
-    {"Plastic deformation", &data.Fp,-2}, {"Growth deformation", &data.Fg,-2},
+    {"Growth deformation", &data.Fg,-2}, {"Plastic deformation", &data.Fp,-2},
+    {"Young's modulus", &data.E,-1}, {"Plasticity coeff.", &data.plasticity,-1},
+    {"Poisson's ratio", &data.nu,-1}, {"Fiber k1", &data.k1,-1},
+    {"Viscosity", &data.visc,-1},     {"Fiber k2", &data.k2,-1},
+
     // {"Actin filaments", &data.actinTetra_vis,-1},
     // {"Fiber 1", &data.fiberTetra1_vis,-1}, {"Fiber 2", &data.fiberTetra2_vis,-1},
     // {"Fiber 3", &data.fiberTetra3_vis,-1}, {"Fiber 4", &data.fiberTetra4_vis,-1},
@@ -73,7 +92,7 @@ std::vector<std::tuple<std::string, TensorArrayDev*, int>> rank1TensorsNames = {
     {"growth rate", &data.grRate1,-1},
     {"growth rate", &data.grRate2,-1},
     {"growth rate", &data.grRate3,-1},
-    {"Actin filaments", &data.actin,-1},
+    {"Active tensile force", &data.actin,-1},
     {"Fiber 1", &data.fiber1,-1},
     {"Fiber 2", &data.fiber2,-1},
     {"Fiber 3", &data.fiber3,-1},
@@ -233,29 +252,41 @@ void getAverageAndSTD(float* avgSTD, const float *data, int N) {
 #define IMGUI_ENABLE_WIDGET {ImGui::PopItemFlag(); ImGui::PopStyleVar();}
 
 void inline ImGuiParamReadRow(const std::string& lable, std::string &expression , bool &useMeshDef, const bool meshDefAvailable, bool& paramChanged) {
+    char readBuf[2048] = "";
+    char editBuf[2048] = "";
+    std::copy_n(expression.begin(), std::min(sizeof(readBuf) - 1, expression.size()), readBuf);
+
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     ImGui::Text(lable.c_str());
     ImGui::TableNextColumn();
 
-    int bufSize = 1024;
-    char buf[bufSize];
-    std::fill_n(buf, 1024, 0);
-    std::copy_n(expression.begin(), std::min(bufSize, (int) expression.size()), buf);
-
-    if (meshDefAvailable) {
+    if (!meshDefAvailable) IMGUI_DISABLE_WIDGET
         if (ImGui::Checkbox(("##File"+lable).c_str(), &useMeshDef))
             paramChanged = true;
         DelayedTooltip("Use mesh file data for "+lable, 0.1);
         ImGui::SameLine();
-    }
+    if (!meshDefAvailable) IMGUI_ENABLE_WIDGET
 
     if (useMeshDef && meshDefAvailable) IMGUI_DISABLE_WIDGET
 
-    if (ImGui::InputTextEx(("##"+lable).c_str(), NULL, buf, bufSize, ImVec2(-1,0), ImGuiInputTextFlags_CtrlEnterForNewLine)) {
-        expression = std::string(buf);
-        paramChanged = true;
+    ImGui::SameLine();
+    // ImGui::SetWindowFontScale(0.70f);
+    ImGui::InputTextEx(("##small"+lable).c_str(), NULL, readBuf, sizeof(readBuf), ImVec2(-1,0), ImGuiInputTextFlags_ReadOnly);
+    // ImGui::SetWindowFontScale(1.0f);
+    if (ImGui::IsItemActivated()) {        // When clicked, open the big editor
+        ImGui::OpenPopup(lable.c_str());
     }
+
+    if (ImGui::BeginPopup(lable.c_str())) {
+        std::copy_n(expression.begin(), std::min(sizeof(editBuf) - 1, expression.size()), editBuf);
+        if (ImGui::InputTextMultiline(("##big"+lable).c_str(), editBuf, sizeof(editBuf), ImVec2(600, 200))) {
+            expression = std::string(editBuf);
+            paramChanged = true;
+        }
+        ImGui::EndPopup();
+    }
+
 
     if (useMeshDef && meshDefAvailable) IMGUI_ENABLE_WIDGET
 
@@ -350,21 +381,13 @@ TensorArrayEigen device_to_eigen_tensor(const TensorArrayDev& devData) {
 
 template<class  T>
 ScalarArrayEigen device_to_vis_data(const thrust::device_vector<T>& devData, const Eigen::VectorXi& tetMap, int component) {
-    const int nComp = sizeof(T)/sizeof(Float);
-    typedef Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
-    thrust::host_vector<T> hostData(devData);
-    EigenMapType mappedData(reinterpret_cast<Float *>(hostData.data()), hostData.size(), nComp);
-    ScalarArrayEigen visData;
-    if (component>=0 && component < nComp)
-        visData = mappedData.col(component);
-    else if ((component == -2) && nComp==9)
-        visData = (mappedData.rowwise().squaredNorm() - Float(3.0)).abs().sqrt();
-    else
-        visData = mappedData.rowwise().norm();
-    if (devData.size() == mesh.ntet)
-        visData = visData(tetMap);
-    return visData;
+    static_assert(sizeof(T) == 0, "Type not supported");
 };
+template<class  T>
+ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<T>& devData, const Eigen::VectorXi& tetMap, const Eigen::SparseMatrix<Float>& BC, int component) {
+    static_assert(sizeof(T) == 0, "Type not supported");
+};
+
 
 template<>
 ScalarArrayEigen device_to_vis_data<Float>(const thrust::device_vector<Float>& devData, const Eigen::VectorXi& tetMap, int component) {
@@ -375,24 +398,37 @@ ScalarArrayEigen device_to_vis_data<Float>(const thrust::device_vector<Float>& d
     return visData;
 }
 
-template<class  T>
-ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<T>& devData, const Eigen::VectorXi& tetMap, const Eigen::SparseMatrix<Float>& BC, int component) {
-    const int nComp = sizeof(T)/sizeof(Float);
-    typedef typename Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
-    thrust::host_vector<T> hostData(devData);
+template<>
+ScalarArrayEigen device_to_vis_data<Vector>(const thrust::device_vector<Vector>& devData, const Eigen::VectorXi& tetMap, int component) {
+    const int nComp = 3;
+    typedef Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
+    thrust::host_vector<Vector> hostData(devData);
     EigenMapType mappedData(reinterpret_cast<Float *>(hostData.data()), hostData.size(), nComp);
     ScalarArrayEigen visData;
     if (component>=0 && component < nComp)
         visData = mappedData.col(component);
-    else if ((component == -2) && nComp==9)
-        visData = (mappedData.rowwise().squaredNorm() - Float(3.0)).abs().sqrt();
     else
         visData = mappedData.rowwise().norm();
-    if (hostData.size() == mesh.ntet)
+    if (devData.size() == mesh.ntet)
         visData = visData(tetMap);
-    else
-        visData = (BC * visData.matrix()).array();
+    return visData;
+};
 
+template<>
+ScalarArrayEigen device_to_vis_data<Tensor>(const thrust::device_vector<Tensor>& devData, const Eigen::VectorXi& tetMap, int component) {
+    const int nComp = 9;
+    typedef Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
+    thrust::host_vector<Tensor> hostData(devData);
+    EigenMapType mappedData(reinterpret_cast<Float *>(hostData.data()), hostData.size(), nComp);
+    ScalarArrayEigen visData;
+    if (component>=0 && component < nComp)
+        visData = mappedData.col(component);
+    else if (component == -2) {
+        visData = (mappedData.rowwise() - Eigen::Array<Float,1,nComp>{1,0,0, 0,1,0, 0,0,1}).rowwise().squaredNorm().sqrt();
+    } else
+        visData = mappedData.rowwise().norm();
+    if (devData.size() == mesh.ntet)
+        visData = visData(tetMap);
     return visData;
 };
 
@@ -407,6 +443,44 @@ ScalarArrayEigen device_to_vis_data_section<Float>(const thrust::device_vector<F
     return visData;
 }
 
+template<>
+ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<Tensor>& devData, const Eigen::VectorXi& tetMap, const Eigen::SparseMatrix<Float>& BC, int component) {
+    const int nComp = 9;
+    typedef typename Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
+    thrust::host_vector<Tensor> hostData(devData);
+    EigenMapType mappedData(reinterpret_cast<Float *>(hostData.data()), hostData.size(), nComp);
+    ScalarArrayEigen visData;
+    if (component>=0 && component < nComp)
+        visData = mappedData.col(component);
+    else if (component == -2)
+        visData = (mappedData.rowwise() - Eigen::Array<Float,1,nComp>{1,0,0, 0,1,0, 0,0,1}).rowwise().squaredNorm().sqrt();
+    else
+        visData = mappedData.rowwise().norm();
+    if (hostData.size() == mesh.ntet)
+        visData = visData(tetMap);
+    else
+        visData = (BC * visData.matrix()).array();
+
+    return visData;
+};
+
+template<>
+ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<Vector>& devData, const Eigen::VectorXi& tetMap, const Eigen::SparseMatrix<Float>& BC, int component) {
+    const int nComp = 3;
+    typedef typename Eigen::Map<Eigen::Array<Float,Eigen::Dynamic,nComp,Eigen::RowMajor>> EigenMapType;
+    thrust::host_vector<Vector> hostData(devData);
+    EigenMapType mappedData(reinterpret_cast<Float *>(hostData.data()), hostData.size(), nComp);
+    ScalarArrayEigen visData;
+    if (component>=0 && component < nComp)
+        visData = mappedData.col(component);
+    else
+        visData = mappedData.rowwise().norm();
+    if (hostData.size() == mesh.ntet)
+        visData = visData(tetMap);
+    else
+        visData = (BC * visData.matrix()).array();
+    return visData;
+};
 
 ScalarArrayEigen device_to_vis_data_tet_mesh(const std::any &selectedData, int selectedDataComp, const Eigen::VectorXi& tetMap) {
     ScalarArrayEigen tempData;
@@ -440,9 +514,73 @@ ScalarArrayEigen device_to_vis_data_tet_section(const std::any &selectedData, in
 
 static std::string exec_path;
 
+#ifdef __linux__
+// When started from the AppImage, register a menu entry + icon for the current user
+// (~/.local/share), so GNOME/Ubuntu can show the icon in the dock and app grid.
+// The icon file name contains a hash of the icon, so a new icon gets a new name:
+// that changes the .desktop file, which makes GNOME drop its cached copy of the old icon.
+static void integrateAppImage() {
+    const char* appimage = std::getenv("APPIMAGE");   // set by the AppImage runtime
+    const char* appdir   = std::getenv("APPDIR");
+    if (!appimage || !appdir) return;                  // not running as an AppImage
+
+    fs::path dataHome;
+    if (const char* x = std::getenv("XDG_DATA_HOME"); x && *x) dataHome = x;
+    else if (const char* h = std::getenv("HOME"); h && *h)     dataHome = fs::path(h) / ".local" / "share";
+    else return;
+
+    const std::string name = "NewtonBioMorphX";
+    std::error_code ec;
+
+    // Read the icon shipped in the AppImage and hash it (FNV-1a)
+    std::ifstream iconIn(fs::path(appdir) / (name + ".png"), std::ios::binary);
+    std::string iconData((std::istreambuf_iterator<char>(iconIn)), std::istreambuf_iterator<char>());
+    if (iconData.empty()) return;
+    std::uint64_t h = 1469598103934665603ull;
+    for (unsigned char c : iconData) { h ^= c; h *= 1099511628211ull; }
+    std::ostringstream hex; hex << std::hex << (h & 0xffffffffull);
+
+    fs::path iconDir = dataHome / "icons";
+    fs::path iconDst = iconDir / (name + "-" + hex.str() + ".png");
+    fs::path desktop = dataHome / "applications" / (name + ".desktop");
+    fs::create_directories(iconDir, ec);
+    fs::create_directories(desktop.parent_path(), ec);
+
+    if (!fs::exists(iconDst)) {
+        // Remove icons written by earlier versions, then write the current one
+        for (const auto& e : fs::directory_iterator(iconDir, ec)) {
+            const std::string f = e.path().filename().string();
+            if (f.rfind(name, 0) == 0 && e.path().extension() == ".png")
+                fs::remove(e.path(), ec);
+        }
+        std::ofstream(iconDst, std::ios::binary) << iconData;
+    }
+
+    std::ostringstream entry;
+    entry << "[Desktop Entry]\n"
+          << "Type=Application\n"
+          << "Name=" << name << "\n"
+          << "Exec=\"" << appimage << "\"\n"
+          << "Icon=" << iconDst.string() << "\n"
+          << "StartupWMClass=" << name << "\n"
+          << "Categories=Science;\n"
+          << "Terminal=false\n";
+
+    std::ifstream in(desktop);
+    std::string old((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (old != entry.str()) {
+        std::ofstream(desktop) << entry.str();
+        fs::permissions(desktop, fs::perms::owner_exec, fs::perm_options::add, ec);
+    }
+}
+#endif
+
 int main(int argc, char** argv) {
-    // std::filesystem::current_path(std::filesystem::canonical("/proc/self/exe").parent_path()); //setting path
-    exec_path = std::filesystem::canonical("/proc/self/exe").parent_path(); //setting path
+#ifdef __linux__
+    integrateAppImage();
+#endif
+
+    exec_path = getExecutableDir().string(); //setting path
     gP.init();
 
     if (argc > 1) {
@@ -507,12 +645,7 @@ int main(int argc, char** argv) {
     mStartTime = std::chrono::system_clock::now();
 
     auto nogui = [] {
-        layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(mesh.boundaryTetIds) - 1).cast<double>().transpose();
-
-        data.isRigid.assign(mesh.nver, 0);
-        cudaDeviceSynchronize();
-        _LAUNCH(mesh.ntet, 256, mark_rigid_nodes) (dataPtr, mesh.ntet);
-        cudaDeviceSynchronize();
+        layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds) - 1).cast<double>().transpose();
         if (compile()) {
             paramChanged = false;
         } else {
@@ -522,13 +655,18 @@ int main(int argc, char** argv) {
         resetSimFlag = true;
 
         bcChanged = false;
+
+        data.isRigid.assign(mesh.nver, 0);
+        cudaDeviceSynchronize();
+        _LAUNCH_NVRTC(mesh.ntet, 256, mark_rigid_nodes_nvrtc.kernel, {&dataPtr, &mesh.ntet});
+        cudaDeviceSynchronize();
+
         // _LUNCH(mesh.ntet, 256, compute_nodalENu) (dataPtr, mesh.ntet);
         // cudaDeviceSynchronize();
-        // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
         Float tempFloat = bcTol*spacing;
         _LAUNCH_NVRTC(mesh.nver, 256, compute_bids_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.nver});
         cudaDeviceSynchronize();
-        _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &tempFloat, &mesh.ntri});
+        _LAUNCH_NVRTC(mesh.ntri, 256, compute_ext_load_nvrtc.kernel, {&dataPtr, &globalTime, &tempFloat, &mesh.ntri});
         cudaDeviceSynchronize();
 
         ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
@@ -541,7 +679,7 @@ int main(int argc, char** argv) {
 
         cudaDeviceSynchronize();
 
-        run = true;
+        run = true;//not(simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval));
         runSim.notify_all();
         int k = 0;
         while (!shutDown) {
@@ -573,7 +711,7 @@ int main(int argc, char** argv) {
                 // nodalColor.col(1) = visG(mesh.boundaryNodeIds).cast<double>();
                 // nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
                 // writePLY(output,
-                //         visPosA(mesh.boundaryNodeIds,Eigen::all).cast<double>(),
+                //         visPosA(mesh.boundaryNodeIds,Eigen::placeholders::all).cast<double>(),
                 //         nodalColor,
                 //         mesh.tri_mapped.matrix(),
                 //         "growth "+std::to_string(growthProgress)+
@@ -599,7 +737,20 @@ int main(int argc, char** argv) {
         VideoWriter *videoWriter = nullptr;
         igl::opengl::glfw::Viewer viewer;
 
-        viewer.launch_init(false,"NewtonBioMorphX",0,0);
+        viewer.callback_init = [&](igl::opengl::glfw::Viewer& v) {
+            GLFWwindow* win = v.window;
+
+            // Set window position
+            glfwSetWindowPos(win, 640 + 100, 150+37);
+
+            // Set window size
+            glfwSetWindowSize(win, 1280, 720 * 3/2);
+
+            return false; // return false = continue normal initialization
+        };
+
+        // viewer.launch_init(false,"NewtonBioMorphX",0,0);
+        viewer.launch_init(false,"NewtonBioMorphX");
         viewer.append_mesh(); // data_id = 1
         viewer.append_mesh(); // data_id = 2
         viewer.append_mesh(); // data_id = 3
@@ -788,7 +939,7 @@ int main(int argc, char** argv) {
                     Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                     if (meshVisState == 0) {
                         vd_mesh->set_mesh(visPos.cast<double>(), mesh.tri);
-                        layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(mesh.boundaryTetIds) - 1 ).cast<double>().transpose();
+                        layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds) - 1 ).cast<double>().transpose();
                     } else if (meshVisState == 1) {
                         igl::marching_tets(visPos.cast<double>().matrix(),
                                            mesh.tet.matrix(),
@@ -802,7 +953,7 @@ int main(int argc, char** argv) {
                         vd_mesh->set_mesh(sliceVertex, sliceFace);
                         layerFaceColors.resize(J.rows(), 4);
                         if (J.rows() > 0)
-                            layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(J) - 1 ).cast<double>().transpose();
+                            layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(J) - 1 ).cast<double>().transpose();
                     } else if (meshVisState == 2 && !crinkleClip) {
                         igl::marching_tets(visPos.cast<double>().matrix(),
                                            mesh.tet.matrix(),
@@ -816,7 +967,7 @@ int main(int argc, char** argv) {
                         vd_mesh->set_mesh(sliceVertex, sliceFace);
                         layerFaceColors.resize(J.rows(), 4);
                         if (J.rows() > 0)
-                            layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(J) - 1 ).cast<double>().transpose();
+                            layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(J) - 1 ).cast<double>().transpose();
 
                         // Plane: point P and normal N
                         Eigen::RowVector3d P(0, 0, 0);
@@ -828,26 +979,26 @@ int main(int argc, char** argv) {
                         vd_mesh2->set_mesh(sliceVertex2, sliceFace2);
                         layerFaceColors2.resize(J2.rows(), 4);
                         if (J2.rows() > 0)
-                            layerFaceColors2 = layersColorEigen(Eigen::all, mesh.layer(mesh.boundaryTetIds(J2)) - 1 ).cast<double>().transpose();
+                            layerFaceColors2 = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds(J2)) - 1 ).cast<double>().transpose();
 
                     } else if (meshVisState == 2 && crinkleClip) {
                         Eigen::VectorXi selectedTetIds;
-                        VectorArrayEigen tetCenter = (visPos(mesh.tet.col(0),Eigen::all)
-                                                      + visPos(mesh.tet.col(1),Eigen::all)
-                                                      + visPos(mesh.tet.col(2),Eigen::all)
-                                                      + visPos(mesh.tet.col(3),Eigen::all)) * 0.25;
+                        VectorArrayEigen tetCenter = (visPos(mesh.tet.col(0),Eigen::placeholders::all)
+                                                      + visPos(mesh.tet.col(1),Eigen::placeholders::all)
+                                                      + visPos(mesh.tet.col(2),Eigen::placeholders::all)
+                                                      + visPos(mesh.tet.col(3),Eigen::placeholders::all)) * 0.25;
 
                         if (inverseClip)
                             igl::find(tetCenter.col(sliceDir) > (minPos[sliceDir] + sliceMag[sliceDir] * (maxPos[sliceDir] - minPos[sliceDir])), selectedTetIds);
                         else
                             igl::find(tetCenter.col(sliceDir) < (minPos[sliceDir] + sliceMag[sliceDir] * (maxPos[sliceDir] - minPos[sliceDir])), selectedTetIds);
                         Eigen::MatrixXi tri;
-                        Eigen::MatrixXi tet = mesh.tet(selectedTetIds,Eigen::all);
+                        Eigen::MatrixXi tet = mesh.tet(selectedTetIds,Eigen::placeholders::all);
                         igl::boundary_facets(tet, tri);
                         vd_mesh->set_mesh(visPos.cast<double>(), tri);
                         boundaryTetIds = tetra_for_boundary_faces_v2t(mesh.tet, tri, mesh.nver);
                         if (tri.rows()>0)
-                            layerFaceColors = layersColorEigen(Eigen::all, mesh.layer(boundaryTetIds) - 1 ).cast<double>().transpose();
+                            layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(boundaryTetIds) - 1 ).cast<double>().transpose();
                     }
 
                     if (firstTimeSetMeshToViewer) {
@@ -886,28 +1037,28 @@ int main(int argc, char** argv) {
                         tempData = device_to_vis_data_tet_mesh(selectedData, selectedDataComp, mesh.boundaryTetIds);
 
                         if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
-                            triCenter = (visPos(mesh.tri.col(0), Eigen::all)
-                                + visPos(mesh.tri.col(1), Eigen::all)
-                                + visPos(mesh.tri.col(2), Eigen::all)).cast<double>() / 3.0;
+                            triCenter = (visPos(mesh.tri.col(0), Eigen::placeholders::all)
+                                + visPos(mesh.tri.col(1), Eigen::placeholders::all)
+                                + visPos(mesh.tri.col(2), Eigen::placeholders::all)).cast<double>() / 3.0;
                             for (int i=0; i<rank1TensorsNames.size(); i++)
                                 if (showRank1Tensors[i]) {
                                     double sFacor = scaleRank1Tensors[i];
                                     TensorArrayEigen tempTensor = device_to_eigen_tensor(*std::get<1>(rank1TensorsNames[i]));
-                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds,Eigen::all));
+                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds,Eigen::placeholders::all));
                                     Eigen::RowVector3d color(rank1TensorColors(0,i),rank1TensorColors(1,i),rank1TensorColors(2,i));
                                     vd_mesh->add_edges(triCenter-sFacor*tempVector.cast<double>(),triCenter+sFacor*tempVector.cast<double>(),color);
                                 }
                         }
                     } else if (meshVisState == 1) {
                         if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
-                            triCenter = (sliceVertex(sliceFace.col(0), Eigen::all)
-                                + sliceVertex(sliceFace.col(1), Eigen::all)
-                                + sliceVertex(sliceFace.col(2), Eigen::all)) / 3.0;
+                            triCenter = (sliceVertex(sliceFace.col(0), Eigen::placeholders::all)
+                                + sliceVertex(sliceFace.col(1), Eigen::placeholders::all)
+                                + sliceVertex(sliceFace.col(2), Eigen::placeholders::all)) / 3.0;
                             for (int i=0; i<rank1TensorsNames.size(); i++)
                                 if (showRank1Tensors[i]) {
                                     double sFacor = scaleRank1Tensors[i];
                                     TensorArrayEigen tempTensor = device_to_eigen_tensor(*std::get<1>(rank1TensorsNames[i]));
-                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds,Eigen::all));
+                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds,Eigen::placeholders::all));
                                     Eigen::RowVector3d color(rank1TensorColors(0,i),rank1TensorColors(1,i),rank1TensorColors(2,i));
                                     vd_mesh->add_edges(triCenter-sFacor*tempVector.cast<double>(),triCenter+sFacor*tempVector.cast<double>(),color);
                                 }
@@ -915,20 +1066,20 @@ int main(int argc, char** argv) {
                         tempData = device_to_vis_data_tet_section(selectedData, selectedDataComp, J, BC);
                     } else if (meshVisState == 2 && !crinkleClip) {
                         if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
-                            triCenter = (sliceVertex(sliceFace.col(0), Eigen::all)
-                                + sliceVertex(sliceFace.col(1), Eigen::all)
-                                + sliceVertex(sliceFace.col(2), Eigen::all)) / 3.0;
-                            triCenter2 = (sliceVertex2(sliceFace2.col(0), Eigen::all)
-                                + sliceVertex2(sliceFace2.col(1), Eigen::all)
-                                + sliceVertex2(sliceFace2.col(2), Eigen::all)) / 3.0;
+                            triCenter = (sliceVertex(sliceFace.col(0), Eigen::placeholders::all)
+                                + sliceVertex(sliceFace.col(1), Eigen::placeholders::all)
+                                + sliceVertex(sliceFace.col(2), Eigen::placeholders::all)) / 3.0;
+                            triCenter2 = (sliceVertex2(sliceFace2.col(0), Eigen::placeholders::all)
+                                + sliceVertex2(sliceFace2.col(1), Eigen::placeholders::all)
+                                + sliceVertex2(sliceFace2.col(2), Eigen::placeholders::all)) / 3.0;
                             for (int i=0; i<rank1TensorsNames.size(); i++)
                                 if (showRank1Tensors[i]) {
                                     double sFacor = scaleRank1Tensors[i];
                                     TensorArrayEigen tempTensor = device_to_eigen_tensor(*std::get<1>(rank1TensorsNames[i]));
-                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(J,Eigen::all));
+                                    VectorArrayEigen tempVector = computeMaxEigenvectors_mapped(tempTensor(J,Eigen::placeholders::all));
                                     Eigen::RowVector3d color(rank1TensorColors(0,i),rank1TensorColors(1,i),rank1TensorColors(2,i));
                                     vd_mesh->add_edges(triCenter-sFacor*tempVector.cast<double>(),triCenter+sFacor*tempVector.cast<double>(),color);
-                                    VectorArrayEigen tempVector2 = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds(J2),Eigen::all));
+                                    VectorArrayEigen tempVector2 = computeMaxEigenvectors_mapped(tempTensor(mesh.boundaryTetIds(J2),Eigen::placeholders::all));
                                     vd_mesh->add_edges(triCenter2-sFacor*tempVector2.cast<double>(),triCenter2+sFacor*tempVector2.cast<double>(),color);
                                 }
                         }
@@ -992,7 +1143,7 @@ int main(int argc, char** argv) {
                     //     nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
                     //     std::string tempOutput = output;
                     //     tempOutput.replace(tempOutput.end()-4,tempOutput.end(),fname);
-                    //     writePLY(tempOutput, vd_mesh->V(mesh.boundaryNodeIds, Eigen::all), nodalColor, mesh.tri_mapped.matrix());
+                    //     writePLY(tempOutput, vd_mesh->V(mesh.boundaryNodeIds, Eigen::placeholders::all), nodalColor, mesh.tri_mapped.matrix());
                     //     fs::permissions(tempOutput, fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
                     // }
                     if (saveVTK) {
@@ -1135,7 +1286,7 @@ int main(int argc, char** argv) {
                             thrust::host_vector<Vector> tempPos(data.pos);
                             Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                             Eigen::MatrixXf visPosA(visPos.cast<float>());
-                            writePLY(tempOutput,visPosA(mesh.boundaryNodeIds, Eigen::all).cast<double>() ,mesh.tri_mapped.matrix());
+                            writePLY(tempOutput,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
                             fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
@@ -1161,7 +1312,7 @@ int main(int argc, char** argv) {
         // depending on whether SDL_INIT_GAMECONTROLLER is enabled or disabled.. updating to latest version of SDL is recommended!)
         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
             printf("Error: %s\n", SDL_GetError());
-            return -1;
+            return;
         }
 
         // Decide GL+GLSL versions
@@ -1185,9 +1336,9 @@ int main(int argc, char** argv) {
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
         SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
         SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-        SDL_WindowFlags window_flags = (SDL_WindowFlags) (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
-                                                          SDL_WINDOW_ALLOW_HIGHDPI);
-        SDL_Window *window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,640, 720, window_flags);
+        SDL_WindowFlags window_flags = (SDL_WindowFlags) (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
+        // SDL_Window *window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,640, 720, window_flags);
+        SDL_Window *window = SDL_CreateWindow("NewtonBioMorphX", 100, 150, 640, 720 * 3/2, window_flags);
         SDL_GLContext gl_context = SDL_GL_CreateContext(window);
         SDL_GL_MakeCurrent(window, gl_context);
         SDL_GL_SetSwapInterval(1); // Enable vsync
@@ -1195,7 +1346,7 @@ int main(int argc, char** argv) {
         bool err = gladLoadGLLoader((GLADloadproc) SDL_GL_GetProcAddress) == 0;;
         if (err) {
             fprintf(stderr, "Failed to initialize OpenGL loader!\n");
-            return 1;
+            return;
         }
 
         // Setup Dear ImGui context
@@ -1215,12 +1366,16 @@ int main(int argc, char** argv) {
         ImGui_ImplOpenGL3_Init(glsl_version);
         // Our state
         ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
-        static const ImWchar ranges[] = {
-            0x0020, 0x00FF,   // Basic Latin + Latin-1
-            0x0370, 0x03FF,   // Greek
-            0
+
+        // static const ImWchar extra_ranges[] = { 0x1D00, 0x1D7F, 0x2070, 0x209F, 0 };
+        static const ImWchar extra_ranges[] = {
+        0x0020, 0x00FF,   // Basic Latin + Latin-1
+        0x0370, 0x03FF,   // Greek
+        0x1D00, 0x1D7F,   // Superscripts
+        0x2070, 0x209F,   // Subscripts
+        0
         };
-        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, ranges);
+        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, extra_ranges);
         io.Fonts->Build();
 
         SDL_Event event;
@@ -1663,13 +1818,18 @@ int main(int argc, char** argv) {
                 ImGui::Columns(2, "Basis Columns", false);
 
                 basisChanged = ImGui::RadioButton("Normal/tangent", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::NormalTangent) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nX, Y and Z axes");
+
                 basisChanged = ImGui::RadioButton("Cartesian", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Cartesian) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nX, Y and Z axes");
 
                 // float tmpfloat1 = float(gP.rRefMax);
                 // float tmpfloat2[2] = {float(gP.rRefMin), float(gP.rRefMax)};
                 // float tmpfloat3[3] = {float(gP.RTorus), float(gP.rRefMin), float(gP.rRefMax)};
 
                 basisChanged = ImGui::RadioButton("Cylindrical Z", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::CylindricalZ) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nradial (R), angular (θ) and longitudinal (Z) axes");
+
                 // if (gP.grCoordType == CylindricalZ) {
                 //     ImGui::SameLine();
                 //     basisChanged = ImGui::InputFloat("Max r", &tmpfloat1) || basisChanged;
@@ -1677,6 +1837,7 @@ int main(int argc, char** argv) {
                 // }
 
                 basisChanged = ImGui::RadioButton("Cylindrical Y", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::CylindricalY) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nradial (R), longitudinal (Y) and  angular (θ) axes");
 
                 // if (gP.grCoordType == CylindricalY) {
                 //     ImGui::SameLine();
@@ -1687,10 +1848,13 @@ int main(int argc, char** argv) {
                 ImGui::NextColumn();
 
                 basisChanged = ImGui::RadioButton("Cone adapted", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::ConeAdapted) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nsurface normal (N), slant (S) and angular (Θ) axes");
+
                 // if (gP.grCoordType == ConeAdapted) {
                 // }
 
                 basisChanged = ImGui::RadioButton("Spherical", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Spherical) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nradial (R), polar (Θ) and azimuthal (Φ) axes");
                 // if (gP.grCoordType == Spherical) {
                 //     ImGui::SameLine();
                 //     basisChanged = ImGui::InputFloat2("Min/Max r", tmpfloat2) || basisChanged;
@@ -1698,6 +1862,7 @@ int main(int argc, char** argv) {
                 // }
 
                 basisChanged = ImGui::RadioButton("Toroidal", reinterpret_cast<int *>(&gP.grCoordType), CoordinateSystem::Toroidal) || basisChanged;
+                DelayedTooltip("Tensor components are presented along: \nradial (R), poloidal (Θ) and toroidal (Φ) axes");
                 // if (gP.grCoordType == Toroidal) {
                 //     ImGui::SameLine();
                 //     basisChanged = ImGui::InputFloat3("R, Min/Max r", tmpfloat3) || basisChanged;
@@ -1727,6 +1892,8 @@ int main(int argc, char** argv) {
             defaultParamFlag = ImGui::Button("Default parameters", ImVec2(-1, 0)) || defaultParamFlag;
 
             paramChanged = ImGui::Checkbox("Rigid", &gP.isRigidLayer[selectedLayer]) || paramChanged;
+            DelayedTooltip("Enable rigid behavior for the selected layer.");
+
 
             if (gP.isRigidLayer[selectedLayer]) IMGUI_DISABLE_WIDGET
 
@@ -1739,20 +1906,21 @@ int main(int argc, char** argv) {
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
                 ImGuiParamReadRow("Young's modulus ", gP.E[selectedLayer], gP.useMeshDef_E, mesh.E.rows()==mesh.ntet, paramChanged);
+                DelayedTooltip("Controls the layer's stiffness.\nHigher Young's modulus makes the layer stiffer.");
                 ImGui::Separator();
                 ImGuiParamReadRow("Poisson's ratio ", gP.nu[selectedLayer], gP.useMeshDef_nu, mesh.nu.rows()==mesh.ntet, paramChanged);
+                DelayedTooltip("Controls axial-lateral deformation coupling & compressibility.\nHigher values mean less compressible (range: -1 to 0.5).");
                 ImGui::Separator();
                 ImGuiParamReadRow("Viscosity ", gP.visc[selectedLayer], gP.useMeshDef_viscosity, mesh.visc.rows()==mesh.ntet, paramChanged);
+                DelayedTooltip("Controls resistance to shear.\nHigher viscosity means slower flow.");
                 ImGui::Separator();
                 ImGuiParamReadRow("Plasticity coeff. ", gP.plasticity[selectedLayer], gP.useMeshDef_plasticity, mesh.plasticity.rows()==mesh.ntet, paramChanged);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Ranges from 0 (elastic) to 1 (plastic)");
+                DelayedTooltip("Controls yielding and permanent deformation.\nRanges from 0 (fully-elastic) to 1 (fully-plastic).");
                 ImGui::EndTable();
             }
             if (ImGui::CollapsingHeader("Fibers & Tensile force functions")) {
                 ImGui::SameLine();
                 ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer)).c_str());
-
                 ImGui::BeginTable("##table_anisotropy", 2);
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -1769,20 +1937,28 @@ int main(int argc, char** argv) {
 
                 if (nFibers>0) {
                     ImGuiParamReadRow("Fiber k1", gP.k1[selectedLayer], gP.useMeshDef_k1, mesh.k1.rows()==mesh.ntet, paramChanged);
+                    DelayedTooltip("Sets baseline fiber stiffness.\nHigher values make fibers resist stretch more strongly");
                     ImGuiParamReadRow("Fiber k2", gP.k2[selectedLayer], gP.useMeshDef_k2, mesh.k2.rows()==mesh.ntet, paramChanged);
+                    DelayedTooltip("Controls exponential stiffening of fiber under stretch.");
                     for (int i = 0; i < nFibers; i++) {
                         if (i==0)
                             ImGuiParamReadRow("Fiber 1", gP.fiber1_Ref[selectedLayer], gP.useMeshDef_fiber1_Ref, mesh.fiberTetra1.rows()==mesh.ntet, paramChanged);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 1.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
                         if (i==1)
                             ImGuiParamReadRow("Fiber 2", gP.fiber2_Ref[selectedLayer], gP.useMeshDef_fiber2_Ref, mesh.fiberTetra2.rows()==mesh.ntet, paramChanged);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 2.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
                         if (i==2)
                             ImGuiParamReadRow("Fiber 3", gP.fiber3_Ref[selectedLayer], gP.useMeshDef_fiber3_Ref, mesh.fiberTetra3.rows()==mesh.ntet, paramChanged);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 3.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
                         if (i==3)
                             ImGuiParamReadRow("Fiber 4", gP.fiber4_Ref[selectedLayer], gP.useMeshDef_fiber4_Ref, mesh.fiberTetra4.rows()==mesh.ntet, paramChanged);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 4.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
                     }
                 }
                 ImGui::Separator();
                 ImGuiParamReadRow("Active tensile force", gP.actin_Ref[selectedLayer], gP.useMeshDef_actin_Ref, mesh.actinTetra.rows()==mesh.ntet, paramChanged);
+                DelayedTooltip("Sets the contractile force generated by active filaments.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+
                 ImGui::EndTable();
             }
 
@@ -1803,7 +1979,7 @@ int main(int argc, char** argv) {
                 dir3 = "Angular (θ)";
             } else if (gP.grCoordType==CoordinateSystem::ConeAdapted) { // Cylinder
                 dir1 = "Surface normal (N)";
-                dir2 = "Slant direction (s)";
+                dir2 = "Slant direction (S)";
                 dir3 = "Angular (Θ)";
             } else if (gP.grCoordType==CoordinateSystem::Spherical) { // Sphere
                 dir1 = "Radial (R)";
@@ -2200,8 +2376,8 @@ int main(int argc, char** argv) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 0, 0)));
                 run = !ImGui::Button("Pause simulation", ImVec2(-1, 0));
                 ImGui::PopStyleColor();
-                run = run && not(timeFactor<1e-4);
-                run = run && not(simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval));
+                run = run && !(timeFactor<1e-4);
+                run = run && !(simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval));
             }
 
             if (saveMP4) {
@@ -2219,7 +2395,7 @@ int main(int argc, char** argv) {
 
             if (!lowTimeFactorFlag)
                 lowTimeFactorFlag = ImGuiMessage(timeFactor<1e-4, "Warning !", "Time-step became too small.\nYou may need to change the model parameters.\nPress \"Reset\" button before running again.");
-            if ((!maxIterFlag) and not(timeFactor<1e-4))
+            if ((!maxIterFlag) && !(timeFactor<1e-4))
                 maxIterFlag = ImGuiMessage((simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval)),
                     "Stop condition is reached !", "You may need too change the max iteration or energy limit.\nCheck \"Simulation Parameters\".");
 
@@ -2263,7 +2439,7 @@ int main(int argc, char** argv) {
                 //     nodalColor.col(1) = visG(mesh.boundaryNodeIds).cast<double>();
                 //     nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
                 //
-                //     writePLY(fname,visPosA(mesh.boundaryNodeIds, Eigen::all).cast<double>(), nodalColor,mesh.tri_mapped.matrix());
+                //     writePLY(fname,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>(), nodalColor,mesh.tri_mapped.matrix());
                 //     fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
                 // }
             }
@@ -2302,10 +2478,7 @@ int main(int argc, char** argv) {
                 ImGui::Text("Time                   : %.5f", globalTime);
                 ImGui::Text("Time factor x dt       : %.5f x %.5f", timeFactor, maxDt);
 
-                // ImGui::Text("Total energy           : %.5f",
-                //     thrust::reduce(data.potEnergy.begin(), data.potEnergy.end())
-                //         / thrust::reduce(data.tetVol.begin(), data.tetVol.end()));
-                ImGui::Text("Total energy           : %.5e",kinEnergy);
+                ImGui::Text("Total energy diff. (ΔE): %.5e",kinEnergy);
                 ImGui::Text("Number of nodes        : %d", mesh.nver);
                 ImGui::Text("Number of tetrahedra   : %d", mesh.ntet);
                 ImGui::Text("Number of triangle     : %d", mesh.ntri);
@@ -2455,10 +2628,6 @@ int main(int argc, char** argv) {
             }
 
             if (compileFlag) {
-                data.isRigid.assign(mesh.nver, 0);
-                cudaDeviceSynchronize();
-                _LAUNCH(mesh.ntet, 256, mark_rigid_nodes) (dataPtr, mesh.ntet);
-                cudaDeviceSynchronize();
                 if (compile()) {
                     paramChanged = false;
                 }
@@ -2512,7 +2681,7 @@ int main(int argc, char** argv) {
         SDL_GL_DeleteContext(gl_context);
         SDL_DestroyWindow(window);
         SDL_Quit();
-        return 0;
+        return;
     };
 
     std::thread *draw_mesh_thread, *draw_menu_thread, *nogui_thread, *fem_iterate_thread;

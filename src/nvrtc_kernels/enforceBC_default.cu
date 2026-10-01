@@ -16,7 +16,6 @@
 /* default */#include "../src/Typedefs.h"
 /* default */#include "../src/Primitives.h"
 /* default */#include "../src/DeviceDataPtr.h"
-/* default */#include "cuda_runtime.h"
 
 extern "C"
 __global__ void enforceBC_nvrtc(DeviceDataPtr *data, int nver) {
@@ -49,7 +48,7 @@ __global__ void enforceBC_nvrtc(DeviceDataPtr *data, int nver) {
         
         data->vel[i] = data->vel[i] - proj.dot(data->vel[i]);
         // data->vGradNode[i] = data->vGradNode[i] - proj.dot(data->vGradNode[i]).dot(proj.trans());
-        if (data->isRigid[i] != 0)
+        if (unsigned(data->isRigid[i]) == 1)
             data->vel[i] = Vector(0.0);
 
     }

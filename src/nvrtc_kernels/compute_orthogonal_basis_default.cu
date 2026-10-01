@@ -16,7 +16,6 @@
 /* default */#include "../src/Typedefs.h"
 /* default */#include "../src/Primitives.h"
 /* default */#include "../src/DeviceDataPtr.h"
-/* default */#include "cuda_runtime.h"
 
 extern "C"
 __global__ void compute_orthogonal_basis_nvrtc(DeviceDataPtr *data, int ntet) {

@@ -21,6 +21,7 @@ namespace LagSol {
     NVRTCKernal compute_force_nvrtc("compute_force_nvrtc");
     NVRTCKernal compute_orthogonal_basis_nvrtc("compute_orthogonal_basis_nvrtc");
     NVRTCKernal compute_bids_nvrtc("compute_bids_nvrtc");
+    NVRTCKernal mark_rigid_nodes_nvrtc("mark_rigid_nodes_nvrtc");
     NVRTCKernal enforceBC_nvrtc("enforceBC_nvrtc");
     NVRTCKernal compute_critical_timestep_nvrtc("compute_critical_timestep_nvrtc");
     NVRTCKernal compute_for_vis_nvrtc("compute_for_vis_nvrtc");
@@ -179,23 +180,6 @@ namespace LagSol {
                 atomicAdd(&(data->vGradNode[c][j]), velGrad[j] * 0.25f * (data->tetVol[i] / data->vol[c]));
                 atomicAdd(&(data->vGradNode[d][j]), velGrad[j] * 0.25f * (data->tetVol[i] / data->vol[d]));
             }
-        }
-    }
-
-    __global__ void mark_rigid_nodes(DeviceDataPtrManaged *data, int ntet) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        if (i < ntet) {
-            int a = data->tet[i].x;
-            int b = data->tet[i].y;
-            int c = data->tet[i].z;
-            int d = data->tet[i].w;
-
-            int layer = data->layer[i] - 1;
-
-            // atomicOr(&data->isRigid[a], int(gP.isRigidLayer[layer]));
-            // atomicOr(&data->isRigid[b], int(gP.isRigidLayer[layer]));
-            // atomicOr(&data->isRigid[c], int(gP.isRigidLayer[layer]));
-            // atomicOr(&data->isRigid[d], int(gP.isRigidLayer[layer]));
         }
     }
 

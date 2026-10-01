@@ -28,6 +28,7 @@ namespace LagSol {
     class NVRTCKernal {
         public:
         std::string name;
+        std::string content;
         CUfunction kernel;
         CUmodule module;
         NVRTCKernal(std::string _name) : name(_name) {
@@ -38,6 +39,7 @@ namespace LagSol {
 
     extern NVRTCKernal compute_force_nvrtc;
     extern NVRTCKernal compute_orthogonal_basis_nvrtc;
+    extern NVRTCKernal mark_rigid_nodes_nvrtc;
     extern NVRTCKernal compute_bids_nvrtc;
     extern NVRTCKernal enforceBC_nvrtc;
     extern NVRTCKernal compute_critical_timestep_nvrtc;
@@ -52,7 +54,6 @@ namespace LagSol {
     __global__ void read_boundary_faces(DeviceDataPtrManaged *data, Float radii, int ntri);
     __global__ void compute_normal_from_dist(DeviceDataPtrManaged *data, Float *distance, int ntet);
     __global__ void compute_orthogonal_basis(DeviceDataPtrManaged *data, int ntet);
-    __global__ void mark_rigid_nodes(DeviceDataPtrManaged *data, int ntet);
 
     __global__ void compute_vgrad_node(DeviceDataPtrManaged *data, int ntet);
 

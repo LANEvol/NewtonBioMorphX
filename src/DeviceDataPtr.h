@@ -58,7 +58,7 @@
         int3* fac;
         int* tri2tet;
 
-        int* isRigid;
+        unsigned int* isRigid;
         uint2* bcState;
         char* bidsXMin;
         char* bidsXMax;

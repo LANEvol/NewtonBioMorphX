@@ -206,9 +206,9 @@ namespace LagSol {
         int nC = std::min(arr->GetNumberOfComponents(),N);
         eigen_vector.resize(nTuples, N);
         eigen_vector.setZero();
-        double tuple[nComp];
+        std::vector<double> tuple(nComp);
         for (int i = 0; i < nTuples; ++i) {
-            arr->GetTuple(i, tuple);
+            arr->GetTuple(i, tuple.data());
             for (int j = 0; j < nC; ++j)
                 eigen_vector(i,j) = T(tuple[j]);
         }
@@ -230,7 +230,7 @@ namespace LagSol {
     template<typename T>
     void copy_from_device_array_to_vtk_array(const thrust::device_vector<T> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<T> hostData(devData);
-        int nComp = sizeof(T)/sizeof(Float);
+        constexpr int nComp = sizeof(T)/sizeof(Float);
         vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
@@ -244,7 +244,7 @@ namespace LagSol {
     template<>
     void copy_from_device_array_to_vtk_array<Float>(const thrust::device_vector<Float> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<Float> hostData(devData);
-        int nComp = 1;
+        constexpr int nComp = 1;
         vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
@@ -257,7 +257,7 @@ namespace LagSol {
     template<>
     void copy_from_device_array_to_vtk_array<int>(const thrust::device_vector<int> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<Float> hostData(devData);
-        int nComp = 1;
+        constexpr int nComp = 1;
         vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
@@ -323,7 +323,7 @@ namespace LagSol {
             tri_mapped(i,1) = bdryIdsMap.find(tri(i,1))->second;
             tri_mapped(i,2) = bdryIdsMap.find(tri(i,2))->second;
         }
-        boundaryPos = pos(boundaryNodeIds, Eigen::all);
+        boundaryPos = pos(boundaryNodeIds, Eigen::placeholders::all);
 
         std::vector<std::vector<int>> temp(nver);
         boundaryTetIds.resize(ntri);
@@ -1689,23 +1689,23 @@ namespace LagSol {
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("fiberTetra1"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, fiberTetra1);
-            fiberTetra1 = fiberTetra1(tetraIds, Eigen::all);
+            fiberTetra1 = fiberTetra1(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("fiberTetra2"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, fiberTetra2);
-            fiberTetra2 = fiberTetra2(tetraIds, Eigen::all);
+            fiberTetra2 = fiberTetra2(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("fiberTetra3"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, fiberTetra3);
-            fiberTetra3 = fiberTetra3(tetraIds, Eigen::all);
+            fiberTetra3 = fiberTetra3(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("fiberTetra4"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, fiberTetra4);
-            fiberTetra4 = fiberTetra4(tetraIds, Eigen::all);
+            fiberTetra4 = fiberTetra4(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("actinTetra"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, actinTetra);
-            actinTetra = actinTetra(tetraIds, Eigen::all);
+            actinTetra = actinTetra(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("CellEntityIds"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, layer);
@@ -1721,15 +1721,15 @@ namespace LagSol {
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("Fg"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, Fg);
-            Fg = Fg(tetraIds, Eigen::all);
+            Fg = Fg(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("Fp"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, Fp);
-            Fp = Fp(tetraIds, Eigen::all);
+            Fp = Fp(tetraIds, Eigen::placeholders::all);
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("lamInt"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, lamInt);
-            lamInt = lamInt(tetraIds, Eigen::all);
+            lamInt = lamInt(tetraIds, Eigen::placeholders::all);
         }
 
         extract_boundary_and_face_cell_pairs();

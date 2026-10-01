@@ -60,7 +60,11 @@ namespace LagSol {
 
         AVFormatContext* fmt = nullptr;
         AVCodecContext* ctx = nullptr;
+#if LIBAVCODEC_VERSION_MAJOR >= 59
+        const AVCodec* codec = nullptr;
+#else
         AVCodec* codec = nullptr;
+#endif
         AVStream* stream = nullptr;
         SwsContext* sws = nullptr;
         AVFrame* frame = nullptr;

@@ -17,7 +17,6 @@
 /* default */#include "../src/Primitives.h"
 /* default */#include "../src/DeviceDataPtr.h"
 /* default */#include "../src/SVD3Cuda.h"
-/* default */#include "cuda_runtime.h"
 
 __device__ Tensor get_fiber_stress(const Tensor &aaT, const Tensor &aaTRef, const Float& J, const Float &k1, const Float &k2) {
     Float Ifm1 = max(aaT.trace() - aaTRef.trace(), Float(0.0));

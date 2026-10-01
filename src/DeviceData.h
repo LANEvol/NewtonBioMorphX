@@ -62,7 +62,7 @@ namespace LagSol {
         Int3ArrayDev fac;
         IntArrayDev tri2tet;
 
-        IntArrayDev isRigid;
+        UIntArrayDev isRigid;
         UInt2ArrayDev bcState;
         CharArrayDev bidsXMax;
         CharArrayDev bidsYMax;

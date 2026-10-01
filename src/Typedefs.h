@@ -22,7 +22,7 @@ typedef unsigned int UInt32;
 typedef unsigned long UInt64;
 
 #define EXPONENTIAL_GROWTH_RATE_FUNCTION
-#define DBL_PRECISION
+// #define DBL_PRECISION
 
 #ifdef DBL_PRECISION
 typedef double Float;
@@ -47,6 +47,7 @@ typedef UInt64 UIntM;
 #endif
 
 #define MAX_FLOAT FLT_MAX
+const Float PI = Float(3.14159265358979323846);
 
 const size_t MAX_NGB = 1000;
 
@@ -58,7 +59,7 @@ const size_t MAX_NGB = 1000;
 
 #define _LOAD_NVRTC(NVRTCKernel, kernelId, pathToKernel) {\
     if (NVRTCKernel.module != nullptr) cuModuleUnload(NVRTCKernel.module);\
-    NVRTCKernel.kernel = loadKernel(compileKernel(loadTextSource(pathToKernel + NVRTCKernel.name + std::string(".cu")), std::string("temp") + std::to_string(kernelId) + std::string(".cu")), NVRTCKernel.module, NVRTCKernel.name);\
+    NVRTCKernel.kernel = loadKernel(compileKernel(NVRTCKernel.content, NVRTCKernel.name), NVRTCKernel.module, NVRTCKernel.name);\
     }
 
 #define _LAUNCH_NVRTC(n,tb,kernel,...) { \

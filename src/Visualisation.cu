@@ -100,7 +100,7 @@ namespace LagSol {
         distances.array() = 0.0;
 
         /////////////////////////////////////////////////////
-        Eigen::MatrixXd FCenter = (V(F.col(0), Eigen::all) + V(F.col(1), Eigen::all) + V(F.col(2), Eigen::all))/3.0;
+        Eigen::MatrixXd FCenter = (V(F.col(0), Eigen::placeholders::all) + V(F.col(1), Eigen::placeholders::all) + V(F.col(2), Eigen::placeholders::all))/3.0;
 
         Eigen::Array<int,-1,1> bFaceXMax = (((FCenter.array().col(0) - gP.posRefMax[0]).abs() < bcTol * spacing)).cast<int>() * (gP.bcTypeMaxAxis0>0);
         Eigen::Array<int,-1,1> bFaceYMax = (((FCenter.array().col(1) - gP.posRefMax[1]).abs() < bcTol * spacing)).cast<int>() * (gP.bcTypeMaxAxis1>0);
@@ -128,7 +128,7 @@ namespace LagSol {
         igl::find(flag,ids);
 
         if (flag.sum()>0) {
-            Eigen::MatrixXi newF = F(ids, Eigen::all);
+            Eigen::MatrixXi newF = F(ids, Eigen::placeholders::all);
             F = newF;
             Eigen::MatrixX3d tempPos;
             Eigen::MatrixXd FN, VN, EN;
@@ -289,8 +289,8 @@ namespace LagSol {
             vd.add_edges(P1, P2, cax2);
             vd.add_edges(center, center + Eigen::RowVector3d(0, 0, r), cax3);
 
-            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"r");
-            vd.add_label(center + Eigen::RowVector3d(0,r*1.2, 0),"theta");
+            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"R");
+            vd.add_label(center + Eigen::RowVector3d(0,r*1.2, 0),"Theta");
             vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"Z");
         } else if (coord == CylindricalY) {
             int N = 50;
@@ -312,9 +312,9 @@ namespace LagSol {
             vd.add_edges(P1, P2, cax2);
             vd.add_edges(center, center + Eigen::RowVector3d(0, r, 0), cax3);
 
-            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"r");
+            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"R");
             vd.add_label(center + Eigen::RowVector3d(0,r*1.2, 0),"Y");
-            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"theta");
+            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"Theta");
         } else if (coord == ConeAdapted) {
             int N = 50;
             Float alpha = coneDims.apexAng/2.0*M_PI/180.0;
@@ -353,10 +353,10 @@ namespace LagSol {
                 center + Eigen::RowVector3d(r, 0, 0),
                 center + Eigen::RowVector3d(r - L*std::tan(alpha), L, 0), cax3);
 
-            vd.add_label(center + Eigen::RowVector3d(r + r*std::cos(alpha), r*std::sin(alpha), 0) * 1.15,"r");
-            vd.add_label(center + Eigen::RowVector3d(r*1.15, L*0.5, 0),"s");
+            vd.add_label(center + Eigen::RowVector3d(r + r*std::cos(alpha), r*std::sin(alpha), 0) * 1.15,"N");
+            vd.add_label(center + Eigen::RowVector3d(r*1.15, L*0.5, 0),"S");
             vd.add_label(center + Eigen::RowVector3d(r*0.25, L*0.5, 0),"Y");
-            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"theta");
+            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"Theta");
 
         } else if (coord == Spherical) {
             Eigen::ArrayX3d xyz;
@@ -369,20 +369,20 @@ namespace LagSol {
 
             for (int i = 0; i < M; i++) {
                 xyz = getSpherePhi(N, r, 2. * M_PI * (double) i / (double) M, 0, M_PI) + center.array().replicate<N, 1>();
-                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::all),
-                                        xyz(Eigen::seqN(1, N - 1), Eigen::all), cax2);
+                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::placeholders::all),
+                                        xyz(Eigen::seqN(1, N - 1), Eigen::placeholders::all), cax2);
             }
 
             M = 1;
             for (int i = -M; i <= M; i++) {
                 xyz = getSphereTheta(N, r, M_PI * (double) i / (double) (2 * M), 0, 2.0 * M_PI) + center.array().replicate<N, 1>();
-                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::all),
-                                        xyz(Eigen::seqN(1, N - 1), Eigen::all), cax3);
+                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::placeholders::all),
+                                        xyz(Eigen::seqN(1, N - 1), Eigen::placeholders::all), cax3);
             }
 
-            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"r");
-            vd.add_label(center + Eigen::RowVector3d(0,r*1.2, 0),"phi");
-            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"theta");
+            vd.add_label(center + Eigen::RowVector3d(r*0.6, r*0.25, 0),"R");
+            vd.add_label(center + Eigen::RowVector3d(0,r*1.2, 0),"Phi");
+            vd.add_label(center + Eigen::RowVector3d(0,0,r*1.2),"Theta");
         } else if (coord == Toroidal) {
             Eigen::ArrayX3d xyz;
             Float R = 0.25;
@@ -392,33 +392,33 @@ namespace LagSol {
             int M;
             // int M = 20;
             // xyz = getTorusPhi(N, R, 0.0, 0.0, 0, 2.0 * M_PI);
-            // vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::all),
-            //                         xyz(Eigen::seqN(1, N - 1), Eigen::all), Eigen::RowVector3d(0,0,0));
+            // vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::placeholders::all),
+            //                         xyz(Eigen::seqN(1, N - 1), Eigen::placeholders::all), Eigen::RowVector3d(0,0,0));
 
             vd.add_edges(Eigen::RowVector3d(R,0,0),Eigen::RowVector3d(R+r,0,0), cax1);
 
             // for (int i = 0; i < M; i++) {
             //     Eigen::RowVector3d temp(R, 0.0, 0.0);
-            //     vd.add_edges(temp, xyz(i, Eigen::all) + (xyz(i, Eigen::all) - temp.array()) * 0.5, cax1);
+            //     vd.add_edges(temp, xyz(i, Eigen::placeholders::all) + (xyz(i, Eigen::placeholders::all) - temp.array()) * 0.5, cax1);
             // }
 
             M = 4;
             for (int i = 0; i < M; i++) {
                 xyz = getTorusTheta(N, R, r, 2. * M_PI * (double) i / (double) (M), 0, 2.0 * M_PI);
-                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::all),
-                                        xyz(Eigen::seqN(1, N - 1), Eigen::all), cax2);
+                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::placeholders::all),
+                                        xyz(Eigen::seqN(1, N - 1), Eigen::placeholders::all), cax2);
             }
 
             M = 2;
             for (int i = 0; i <= M; i++) {
                 xyz = getTorusPhi(N, R, r, M_PI * (double) i / (double) (M-1), 0, 2.0 * M_PI);
-                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::all),
-                                        xyz(Eigen::seqN(1, N - 1), Eigen::all), cax3);
+                vd.add_edges(xyz(Eigen::seqN(0, N - 2), Eigen::placeholders::all),
+                                        xyz(Eigen::seqN(1, N - 1), Eigen::placeholders::all), cax3);
             }
 
-            vd.add_label(Eigen::RowVector3d(R+r*0.6, r*0.25, 0),"r");
-            vd.add_label(Eigen::RowVector3d(R+r*1.0,r*1.5, 0),"phi");
-            vd.add_label(Eigen::RowVector3d(0,R+r*0.5,r*1.2),"theta");
+            vd.add_label(Eigen::RowVector3d(R+r*0.6, r*0.25, 0),"R");
+            vd.add_label(Eigen::RowVector3d(R+r*1.0,r*1.5, 0),"Phi");
+            vd.add_label(Eigen::RowVector3d(0,R+r*0.5,r*1.2),"Theta");
 
         } else {
             double scale = 0.25;
