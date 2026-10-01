@@ -20,7 +20,7 @@ savePNG 0
 showBasis 1
 showEdges 0
 showOrtho 0
-showFilamentFibers 0 1 1 0 0
+showFilamentFibers 0 0 0 0 0
 searchIter 500
 kinEnergyTol 1e-06
 simIter 0
@@ -48,5 +48,5 @@ Layer 0
 	k1 0.25
 	k2 0.0
 	fiber1_Ref Tensor(0, 0, 1)
-	fiber2_Ref Tensor(0, 1 * (X>0), 0) + Tensor(0, 0, 1*(X<0))
+	fiber2_Ref Tensor(0, 1, 0) * (Theta>0) + Tensor(0, 0, 1) * (Theta<0)
 	actin_Ref Tensor(0, 0, 0)
