@@ -14,8 +14,79 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "DeviceData.h"
+#include <type_traits>
 
 namespace LagSol {
+    // Every device array that has a pointer in DeviceDataPtr. One list for set() and release().
+    #define DEVICE_DATA_ARRAYS(X) \
+        X(pos) \
+        X(posRef) \
+        X(normalTetra) \
+        X(dt) \
+        X(vGrad) \
+        X(vGradNode) \
+        X(grRate1_Ref) \
+        X(grRate2_Ref) \
+        X(grRate3_Ref) \
+        X(fiber1_Ref) \
+        X(fiber2_Ref) \
+        X(fiber3_Ref) \
+        X(fiber4_Ref) \
+        X(actin_Ref) \
+        X(grRate1) \
+        X(grRate2) \
+        X(grRate3) \
+        X(fiber1) \
+        X(fiber2) \
+        X(fiber3) \
+        X(fiber4) \
+        X(actin) \
+        X(tet) \
+        X(tri) \
+        X(tri_only_contact) \
+        X(fac) \
+        X(tri2tet) \
+        X(isRigid) \
+        X(bcState) \
+        X(bidsXMin) \
+        X(bidsXMax) \
+        X(bidsYMin) \
+        X(bidsYMax) \
+        X(bidsZMin) \
+        X(bidsZMax) \
+        X(extLoad) \
+        X(k1) \
+        X(k2) \
+        X(vel) \
+        X(force) \
+        X(tetVol) \
+        X(E) \
+        X(nu) \
+        X(plasticity) \
+        X(visc) \
+        X(R) \
+        X(stress) \
+        X(Fg) \
+        X(Fp) \
+        X(layer) \
+        X(vol) \
+        X(volRef) \
+        X(tetQual) \
+        X(potEnergy) \
+        X(kEnergy) \
+        X(vonMises) \
+        X(pressure) \
+        X(boundaryNodeIds) \
+        X(boundaryNodeType) \
+        X(boundaryNodeNormal) \
+        X(boundaryNodePos) \
+        X(boundaryFacePos) \
+        X(boundaryNodeR) \
+        X(boundaryFaceR) \
+        X(ngb_list) \
+        X(ngb_size) \
+        X(ngb_offset)
+
     void DeviceData::init(Mesh& mesh) {
         Eigen::Array<char,Eigen::Dynamic,1> bidsXMaxh,bidsYMaxh,bidsZMaxh;
         Eigen::Array<char,Eigen::Dynamic,1> bidsXMinh,bidsYMinh,bidsZMinh;
@@ -23,6 +94,7 @@ namespace LagSol {
         Vector posMin(mesh.pos.col(0).minCoeff(),mesh.pos.col(1).minCoeff(),mesh.pos.col(2).minCoeff());
         Vector posMax(mesh.pos.col(0).maxCoeff(),mesh.pos.col(1).maxCoeff(),mesh.pos.col(2).maxCoeff());
 
+        delete encoder;                 // init() runs again on every new mesh / reset
         encoder = new Encoder32(posMin,posMax);
 
         Vector minCoord, maxCoord;
@@ -72,13 +144,13 @@ namespace LagSol {
 
         extLoad.resize(mesh.ntri,Vector(0.0));
 
-        tempVec2.resize(mesh.nver,Vector(0.0));
-        tempVec3.resize(mesh.nver,Vector(0.0));
-        tempVec4.resize(mesh.nver,Vector(0.0));
-        tempTens1.resize(mesh.nver,Tensor(0.0));
-        tempTens2.resize(mesh.nver,Tensor(0.0));
-        tempTens3.resize(mesh.nver,Tensor(0.0));
-        tempTens4.resize(mesh.nver,Tensor(0.0));
+        // tempVec2.resize(mesh.nver,Vector(0.0));
+        // tempVec3.resize(mesh.nver,Vector(0.0));
+        // tempVec4.resize(mesh.nver,Vector(0.0));
+        // tempTens1.resize(mesh.nver,Tensor(0.0));
+        // tempTens2.resize(mesh.nver,Tensor(0.0));
+        // tempTens3.resize(mesh.nver,Tensor(0.0));
+        // tempTens4.resize(mesh.nver,Tensor(0.0));
 
 
         vel.resize(mesh.nver,Vector(0.0));
@@ -167,7 +239,20 @@ namespace LagSol {
 
     }
 
+    // Move-assigning an empty vector frees the old buffer immediately (clear() would not).
+    #define _RELEASE_ARRAY(var) var = std::remove_reference_t<decltype(var)>();
+
+    void DeviceData::release() {
+        cudaDeviceSynchronize();
+        DEVICE_DATA_ARRAYS(_RELEASE_ARRAY)
+        _RELEASE_ARRAY(mKey)            // the only array without a pointer in DeviceDataPtr
+        delete encoder;
+        encoder = nullptr;
+        cudaDeviceSynchronize();
+    }
+
     DeviceData::~DeviceData() {
+        // After release() this frees nothing, so it is safe even after CUDA has shut down.
         delete encoder;
     }
 
@@ -175,91 +260,7 @@ namespace LagSol {
 
     void DeviceData::set(DeviceDataPtrManaged& devicePtr) {
         cudaDeviceSynchronize();
-        _SET_POINTER(pos);
-        _SET_POINTER(posRef);
-        _SET_POINTER(normalTetra);
-
-        _SET_POINTER(dt);
-
-        _SET_POINTER(vGrad);
-        _SET_POINTER(vGradNode);
-
-        _SET_POINTER(grRate1_Ref);
-        _SET_POINTER(grRate2_Ref);
-        _SET_POINTER(grRate3_Ref);
-        _SET_POINTER(fiber1_Ref);
-        _SET_POINTER(fiber2_Ref);
-        _SET_POINTER(fiber3_Ref);
-        _SET_POINTER(fiber4_Ref);
-        _SET_POINTER(actin_Ref);
-
-        _SET_POINTER(grRate1);
-        _SET_POINTER(grRate2);
-        _SET_POINTER(grRate3);
-        _SET_POINTER(fiber1);
-        _SET_POINTER(fiber2);
-        _SET_POINTER(fiber3);
-        _SET_POINTER(fiber4);
-        _SET_POINTER(actin);
-
-        _SET_POINTER(tet);
-        _SET_POINTER(tri);
-        _SET_POINTER(tri_only_contact);
-        _SET_POINTER(fac);
-        _SET_POINTER(tri2tet);
-        _SET_POINTER(isRigid);
-        _SET_POINTER(bcState);
-        _SET_POINTER(bidsXMin);
-        _SET_POINTER(bidsXMax);
-        _SET_POINTER(bidsYMin);
-        _SET_POINTER(bidsYMax);
-        _SET_POINTER(bidsZMin);
-        _SET_POINTER(bidsZMax);
-
-        _SET_POINTER(extLoad);
-        _SET_POINTER(tempVec2);
-        _SET_POINTER(tempVec3);
-        _SET_POINTER(tempVec4);
-        _SET_POINTER(tempTens1);
-        _SET_POINTER(tempTens2);
-        _SET_POINTER(tempTens3);
-        _SET_POINTER(tempTens4);
-
-
-
-        _SET_POINTER(k1);
-        _SET_POINTER(k2);
-        _SET_POINTER(vel);
-        _SET_POINTER(force);
-        _SET_POINTER(tetVol);
-        _SET_POINTER(E);
-        _SET_POINTER(nu);
-        _SET_POINTER(plasticity);
-        _SET_POINTER(visc);
-        _SET_POINTER(R);
-        _SET_POINTER(stress);
-        _SET_POINTER(Fg);
-        _SET_POINTER(Fp);
-        _SET_POINTER(layer);
-        _SET_POINTER(vol);
-        _SET_POINTER(volRef);
-        _SET_POINTER(tetQual);
-        _SET_POINTER(potEnergy);
-        _SET_POINTER(kEnergy);
-        _SET_POINTER(vonMises);
-        _SET_POINTER(pressure);
-
-        _SET_POINTER(boundaryNodeIds);
-        _SET_POINTER(boundaryNodeType);
-        _SET_POINTER(boundaryNodeNormal);
-        _SET_POINTER(boundaryNodePos);
-        _SET_POINTER(boundaryFacePos);
-        _SET_POINTER(boundaryNodeR);
-        _SET_POINTER(boundaryFaceR);
-
-        _SET_POINTER(ngb_list);
-        _SET_POINTER(ngb_size);
-        _SET_POINTER(ngb_offset);
+        DEVICE_DATA_ARRAYS(_SET_POINTER)
 
         cudaDeviceSynchronize();
     }

@@ -148,30 +148,14 @@ namespace LagSol {
         int init_from_multi_layer_torus(const double &R, const std::vector<double> &radii, const std::vector<double> &meshSizes);
         void extract_boundary_and_face_cell_pairs();
         void print_info();
-        // int init(const std::string &filename);
-        void save(const std::string &filename,
-                 const thrust::host_vector<int4> &newTet,
-                 const thrust::host_vector<int> &newTag,
-                 const thrust::host_vector<Vector> &newPos,
-                 const thrust::host_vector<Vector> &vel,
-                 const thrust::host_vector<Float> &vonMises,
-                 const thrust::host_vector<Tensor> &stress);
 
         void save_binary(const std::string &filename,
                      const Int4ArrayHost &newTet,
                      const VectorArrayHost &newPos,
                      const std::unordered_map<std::string, std::any> &dataToSave);
 
-        void save_surface(const std::string &filename, const thrust::host_vector<Vector> &new_pos);
-        // void save_surface(const std::string &filename, const thrust::host_vector<Vector> &new_pos, const thrust::host_vector<Vector> &vel);
-
     };
-/*
-    bool writeOBJ(const std::string str,
-                  const Eigen::MatrixXd& V,
-                  const Eigen::MatrixXd& C,
-                  const Eigen::MatrixXi& F);
-                  */
+
     template <typename DerivedV, typename DerivedC, typename DerivedF>
     inline bool writeOBJ(
             const std::string str,

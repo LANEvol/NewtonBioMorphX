@@ -32,32 +32,36 @@ __global__ void compute_bids_nvrtc(DeviceDataPtr *data, Float tol, int nver) {
 
         /* default *///Float R;
         /* default *///Float hapex;
+        /* default *///Float N;
 
-        /* default */Float xMin = gP.posRefMin[0];
-        /* default */Float xMax = gP.posRefMax[0];
-        /* default */Float yMin = gP.posRefMin[1];
-        /* default */Float yMax = gP.posRefMax[1];
-        /* default */Float zMin = gP.posRefMin[2];
-        /* default */Float zMax = gP.posRefMax[2];
+        /* default *///Float XMin;
+        /* default *///Float XMax;
+        /* default *///Float YMin;
+        /* default *///Float YMax;
+        /* default *///Float ZMin;
+        /* default *///Float ZMax;
+        /* default *///Float RMin;
+        /* default *///Float RMax;
+        /* default *///Float NMin;
+        /* default *///Float NMax;
 
-        /* default *///Float rMin;
-        /* default *///Float rMax;
+        /* default *///int bcTypeMinAxis0;
+        /* default *///int bcTypeMaxAxis0;
+        /* default *///int bcTypeMinAxis1;
+        /* default *///int bcTypeMaxAxis1;
+        /* default *///int bcTypeMinAxis2;
+        /* default *///int bcTypeMaxAxis2;
 
-        /* default */int bcTypeMinAxis0;
-        /* default */int bcTypeMaxAxis0;
-        /* default */int bcTypeMinAxis1;
-        /* default */int bcTypeMaxAxis1;
-        /* default */int bcTypeMinAxis2;
-        /* default */int bcTypeMaxAxis2;
-
-        const unsigned int xMinState = fabs(data->posRef[i][0] - xMin) < tol;
-        const unsigned int xMaxState = fabs(data->posRef[i][0] - xMax) < tol;
-        const unsigned int yMinState = fabs(data->posRef[i][1] - yMin) < tol;
-        const unsigned int yMaxState = fabs(data->posRef[i][1] - yMax) < tol;
-        const unsigned int zMinState = fabs(data->posRef[i][2] - zMin) < tol;
-        const unsigned int zMaxState = fabs(data->posRef[i][2] - zMax) < tol;
-        /* default *///const unsigned int rMinState;
-        /* default *///const unsigned int rMaxState;
+        /* default *///const unsigned int XMinState;
+        /* default *///const unsigned int XMaxState;
+        /* default *///const unsigned int YMinState;
+        /* default *///const unsigned int YMaxState;
+        /* default *///const unsigned int ZMinState;
+        /* default *///const unsigned int ZMaxState;
+        /* default *///const unsigned int RMinState;
+        /* default *///const unsigned int RMaxState;
+        /* default *///const unsigned int NMinState;
+        /* default *///const unsigned int NMaxState;
 
         /* default *///unsigned int bcState;
 

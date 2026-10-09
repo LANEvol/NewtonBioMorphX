@@ -57,7 +57,8 @@ namespace LagSol {
 
     __global__ void compute_vgrad_node(DeviceDataPtrManaged *data, int ntet);
 
-    __global__ void compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa, Float kappa_vel, Float rep_thickness, int nnbd);
+    //__global__ void compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa, Float kappa_vel, Float rep_thickness, int nnbd);
+    __global__ void   compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa, Float zeta, Float dt, Float repThickness, int nnbd);
     __global__ void compute_kenergy(DeviceDataPtrManaged *data, int nver);
     __global__ void update_vel(DeviceDataPtrManaged *data, Float damping, Float dt, int nver);
     __global__ void enforce_anchored(DeviceDataPtrManaged *data, Float dt, int nver);

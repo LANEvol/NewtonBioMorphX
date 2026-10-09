@@ -65,17 +65,30 @@ void findAndReplaceToEndOfLine(std::string& file_contents, const std::string& ol
     }
 }
 
+// Removes the characters in 'whitespace' from both ends of 'str', then
+// collapses every interior run of spaces/tabs into a single space.
 std::string trim(const std::string& str,
-                 const std::string& whitespace = " \t")
-{
+                 const std::string& whitespace = " \t") {
     const auto strBegin = str.find_first_not_of(whitespace);
     if (strBegin == std::string::npos)
         return ""; // no content
 
     const auto strEnd = str.find_last_not_of(whitespace);
-    const auto strRange = strEnd - strBegin + 1;
 
-    return str.substr(strBegin, strRange);
+    std::string result;
+    result.reserve(strEnd - strBegin + 1);
+    bool prevBlank = false;
+    for (auto k = strBegin; k <= strEnd; ++k) {
+        const char ch = str[k];
+        if (ch == ' ' || ch == '\t') {
+            if (!prevBlank) result.push_back(' ');
+            prevBlank = true;
+        } else {
+            result.push_back(ch);
+            prevBlank = false;
+        }
+    }
+    return result;
 }
 
 
@@ -200,6 +213,30 @@ BasicGeometry getGeomFromName(const std::string& geom) {
     return result;
 }
 
+// Reads one logical line from 'in'. A physical line whose last non-blank
+// character is a backslash '\' continues on the next line: the backslash is
+// removed and the lines are joined with a single space. Windows line endings
+// ("\r\n") are handled. Returns false only when nothing could be read.
+static bool readLogicalLine(std::istream& in, std::string& out) {
+    out.clear();
+    std::string part;
+    bool gotAny = false;
+    while (std::getline(in, part)) {
+        gotAny = true;
+        if (!part.empty() && part.back() == '\r')
+            part.pop_back();
+        const auto end = part.find_last_not_of(" \t");
+        if (end != std::string::npos && part[end] == '\\') {
+            out.append(part, 0, end);   // drop the backslash and anything after it
+            out.push_back(' ');
+            continue;                   // keep reading the continuation
+        }
+        out += part;
+        return true;
+    }
+    return gotAny;                      // file ended right after a trailing '\'
+}
+
 void readSetting(std::string fileName){
     for (int i=0;i<8;i++)
         showRank1Tensors[i]=false;
@@ -208,9 +245,8 @@ void readSetting(std::string fileName){
     std::string lineStr;
     std::ifstream infile;
     infile.open(fileName);
-    std::getline(infile,lineStr);
-    int i=0;
-    while(!infile.eof()) {
+    int layer=0;
+    while (readLogicalLine(infile, lineStr)) {
         std::stringstream ss(lineStr);
         std::string token, tempStr;
         int tempInt;
@@ -296,7 +332,7 @@ void readSetting(std::string fileName){
         if (token == std::string("searchIter")) ss >> searchIter;
         if (token == std::string("kinEnergyTol")) ss >> kinEnergyTol;
         if (token == std::string("simIter")) ss >> simIter;
-        if (token == std::string("meshVisState")) ss >> meshVisState;
+        if (token == std::string("meshVisState")) ss >> visMode;
         if (token == std::string("selectedLayer")) ss >> selectedLayer;
         if (token == std::string("selectedLayer")) ss >> selectedLayer;
         if (token == std::string("sliceDir")) ss >> sliceDir;
@@ -310,7 +346,7 @@ void readSetting(std::string fileName){
         if (token == std::string("trackball_angle")) ss >> trackball_angle.x() >> trackball_angle.y()
                                                           >> trackball_angle.z() >> trackball_angle.w();
         if (token == std::string("contactFact")) ss >> contactFact;
-        if (token == std::string("contactFactVel")) ss >> contactFactVel;
+        //if (token == std::string("contactFactVel")) ss >> contactFactVel;
         if (token == std::string("repThickness")) ss >> repThickness;
         if (token == std::string("damping")) ss >> gP.damping;
         if (token == std::string("useFbar")) ss >> gP.useFbar;
@@ -327,27 +363,25 @@ void readSetting(std::string fileName){
         if (token == std::string("extLoadMaxAxis1")) {std::getline(ss, gP.extLoadMaxAxis1); gP.extLoadMaxAxis1 = trim(gP.extLoadMaxAxis1, "= \t");};
         if (token == std::string("extLoadMinAxis2")) {std::getline(ss, gP.extLoadMinAxis2); gP.extLoadMinAxis2 = trim(gP.extLoadMinAxis2, "= \t");};
         if (token == std::string("extLoadMaxAxis2")) {std::getline(ss, gP.extLoadMaxAxis2); gP.extLoadMaxAxis2 = trim(gP.extLoadMaxAxis2, "= \t");};
-        
-        if (token == std::string("Layer"))      ss >> i;
 
-        if (token == std::string("isRigid"))    ss >> gP.isRigidLayer[i];
-        if (token == std::string("nu"))        {std::getline(ss, gP.nu[i]); gP.nu[i] = trim(gP.nu[i], "= \t");};
-        if (token == std::string("E"))         {std::getline(ss, gP.E[i]); gP.E[i] = trim(gP.E[i], "= \t");};
-        if (token == std::string("visc"))      {std::getline(ss, gP.visc[i]); gP.visc[i] = trim(gP.visc[i], "= \t");};
-        if (token == std::string("plasticity"))    {std::getline(ss, gP.plasticity[i]); gP.plasticity[i] = trim(gP.plasticity[i], "= \t");};
-        if (token == std::string("grRate1_Ref"))   {std::getline(ss, gP.grRate1_Ref[i]); gP.grRate1_Ref[i] = trim(gP.grRate1_Ref[i], "= \t");};
-        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP.grRate2_Ref[i]); gP.grRate2_Ref[i] = trim(gP.grRate2_Ref[i], "= \t");};
-        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP.grRate3_Ref[i]); gP.grRate3_Ref[i] = trim(gP.grRate3_Ref[i], "= \t");};
+        if (token == std::string("Layer"))      {ss >> layer; layer = std::min(std::max(layer-1, 0), MAX_NLAYERS-1);};
 
-        if (token == std::string("k1"))          {std::getline(ss, gP.k1[i]); gP.k1[i] = trim(gP.k1[i], "= \t");};
-        if (token == std::string("k2"))          {std::getline(ss, gP.k2[i]); gP.k2[i] = trim(gP.k2[i], "= \t");};
-        if (token == std::string("fiber1_Ref"))  {std::getline(ss, gP.fiber1_Ref[i]); gP.fiber1_Ref[i] = trim(gP.fiber1_Ref[i], "= \t");};
-        if (token == std::string("fiber2_Ref"))  {std::getline(ss, gP.fiber2_Ref[i]); gP.fiber2_Ref[i] = trim(gP.fiber2_Ref[i], "= \t");};
-        if (token == std::string("fiber3_Ref"))  {std::getline(ss, gP.fiber3_Ref[i]); gP.fiber3_Ref[i] = trim(gP.fiber3_Ref[i], "= \t");};
-        if (token == std::string("fiber4_Ref"))  {std::getline(ss, gP.fiber4_Ref[i]); gP.fiber4_Ref[i] = trim(gP.fiber4_Ref[i], "= \t");};
-        if (token == std::string("actin_Ref"))   {std::getline(ss, gP.actin_Ref[i]); gP.actin_Ref[i] = trim(gP.actin_Ref[i], "= \t");};
+        if (token == std::string("isRigid"))    ss >> gP.isRigidLayer[layer];
+        if (token == std::string("nu"))        {std::getline(ss, gP.nu[layer]); gP.nu[layer] = trim(gP.nu[layer], "= \t");};
+        if (token == std::string("E"))         {std::getline(ss, gP.E[layer]); gP.E[layer] = trim(gP.E[layer], "= \t");};
+        if (token == std::string("visc"))      {std::getline(ss, gP.visc[layer]); gP.visc[layer] = trim(gP.visc[layer], "= \t");};
+        if (token == std::string("plasticity"))    {std::getline(ss, gP.plasticity[layer]); gP.plasticity[layer] = trim(gP.plasticity[layer], "= \t");};
+        if (token == std::string("grRate1_Ref"))   {std::getline(ss, gP.grRate1_Ref[layer]); gP.grRate1_Ref[layer] = trim(gP.grRate1_Ref[layer], "= \t");};
+        if (token == std::string("grRate2_Ref"))   {std::getline(ss, gP.grRate2_Ref[layer]); gP.grRate2_Ref[layer] = trim(gP.grRate2_Ref[layer], "= \t");};
+        if (token == std::string("grRate3_Ref"))   {std::getline(ss, gP.grRate3_Ref[layer]); gP.grRate3_Ref[layer] = trim(gP.grRate3_Ref[layer], "= \t");};
 
-        std::getline(infile,lineStr);
+        if (token == std::string("k1"))          {std::getline(ss, gP.k1[layer]); gP.k1[layer] = trim(gP.k1[layer], "= \t");};
+        if (token == std::string("k2"))          {std::getline(ss, gP.k2[layer]); gP.k2[layer] = trim(gP.k2[layer], "= \t");};
+        if (token == std::string("fiber1_Ref"))  {std::getline(ss, gP.fiber1_Ref[layer]); gP.fiber1_Ref[layer] = trim(gP.fiber1_Ref[layer], "= \t");};
+        if (token == std::string("fiber2_Ref"))  {std::getline(ss, gP.fiber2_Ref[layer]); gP.fiber2_Ref[layer] = trim(gP.fiber2_Ref[layer], "= \t");};
+        if (token == std::string("fiber3_Ref"))  {std::getline(ss, gP.fiber3_Ref[layer]); gP.fiber3_Ref[layer] = trim(gP.fiber3_Ref[layer], "= \t");};
+        if (token == std::string("fiber4_Ref"))  {std::getline(ss, gP.fiber4_Ref[layer]); gP.fiber4_Ref[layer] = trim(gP.fiber4_Ref[layer], "= \t");};
+        if (token == std::string("actin_Ref"))   {std::getline(ss, gP.actin_Ref[layer]); gP.actin_Ref[layer] = trim(gP.actin_Ref[layer], "= \t");};
     }
     infile.close();
 }
@@ -435,7 +469,7 @@ void writeSetting(std::string fileName) {
     ofile << "searchIter "<< searchIter << std::endl;
     ofile << "kinEnergyTol "<< kinEnergyTol << std::endl;
     ofile << "simIter "<< simIter << std::endl;
-    ofile << "meshVisState "<< meshVisState << std::endl;
+    ofile << "meshVisState "<< visMode << std::endl;
     ofile << "selectedLayer "<< selectedLayer << std::endl;
     ofile << "sliceDir "<< sliceDir << std::endl;
     ofile << "sliceMag "<< sliceMag[0] <<" "<<sliceMag[1]<<" "<<sliceMag[2]<< std::endl;
@@ -445,7 +479,7 @@ void writeSetting(std::string fileName) {
     ofile << "bkgColor "<< bkgColor(0)<<" "<<bkgColor(1)<<" "<<bkgColor(2)<<" "<<bkgColor(3)<< std::endl;
     // Eigen::Array4Xf layersColorEigen(4, MAX_NLAYERS);
     ofile << "trackball_angle "<< current_trackball_angle.x()<<" "<<current_trackball_angle.y()<<" "<<current_trackball_angle.z()<<" "<<current_trackball_angle.w()<< std::endl;
-    ofile << "contactFact "<< contactFact << std::endl;
+    //ofile << "contactFact "<< contactFact << std::endl;
     ofile << "contactFactVel "<< contactFactVel << std::endl;
     ofile << "repThickness "<< repThickness << std::endl;
     ofile << "damping "<< gP.damping << std::endl;
@@ -467,7 +501,7 @@ void writeSetting(std::string fileName) {
     ofile <<"extLoadMaxAxis2 " << gP.extLoadMaxAxis2 << std::endl;
 
     for (int i=0; i<nLayers; i++) {
-        ofile << "" << "Layer " << i << std::endl;
+        ofile << "" << "Layer " << i+1 << std::endl;
 
         ofile << "\t" << "isRigid "<< gP.isRigidLayer[i]<< std::endl;
         ofile << "\t" << "nu "<< gP.nu[i]<< std::endl;

@@ -28,6 +28,17 @@ namespace LagSol {
     __global__ void maskParticlesKernel(UIntM* __restrict__ output, const UIntM* input, const UIntM* mask, Int num);
     __global__ void refineMaskKernel(UIntM* __restrict__ mask, Int* __restrict__ particleLevel, const Int* expNPBranch, Int threshold, Int num);
     __global__ void findBranchMinMaxKernel(Vector* __restrict__ bMinPos, Vector* __restrict__ bMaxPos, const Vector* pos, const Float* h, const Int* offset, const Int* nPBranch, Int nBranches);
+    __global__ void countBranchNgbKernel(Int* __restrict__ ngbSize,
+                                         const Vector* bMinPos1, const Vector* bMaxPos1,
+                                         const Vector* bMinPos2, const Vector* bMaxPos2,
+                                         Int nBranches1, Int nBranches2);
+    __global__ void fillBranchNgbKernel(Int* __restrict__ ngbIds, const Int* ngbOffset,
+                                        const Vector* bMinPos1, const Vector* bMaxPos1,
+                                        const Vector* bMinPos2, const Vector* bMaxPos2,
+                                        Int nBranches1, Int nBranches2);
+
+
+
     inline __host__ __device__ bool getIntersection(const Vector& aPMin, const Vector& aPMax, const Vector& bPMin, const Vector& bPMax) {
         if (aPMax[0] < bPMin[0]) return false; // a is left of b
         if (aPMin[0] > bPMax[0]) return false; // a is right of b
@@ -37,16 +48,6 @@ namespace LagSol {
         if (aPMin[2] > bPMax[2]) return false; // a is behind of b
         return true; // boxes overlap
     }
-    __global__ void findBranchNgbKernel(Int* __restrict__ ngbIds,
-                                        Int* __restrict__ ngbSize,
-                                        const Vector* bMinPos1,
-                                        const Vector* bMaxPos1,
-                                        const Vector* bMinPos2,
-                                        const Vector* bMaxPos2,
-                                        UInt maxBranchNgb,
-                                        Int nBranches1,
-                                        Int nBranches2);
-    __global__ void copyToNgbVector(Int* __restrict__ output, const Int* ngbIds, const Int* ngbSize, const Int* ngbOffset, UInt maxBranchNgb, Int nBranches);
 
     struct Octree {
         Int threshold; // This value indicates the maximum allowed number of particles in each branch.

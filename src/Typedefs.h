@@ -22,7 +22,7 @@ typedef unsigned int UInt32;
 typedef unsigned long UInt64;
 
 #define EXPONENTIAL_GROWTH_RATE_FUNCTION
-// #define DBL_PRECISION
+//#define DBL_PRECISION
 
 #ifdef DBL_PRECISION
 typedef double Float;
@@ -49,7 +49,7 @@ typedef UInt64 UIntM;
 #define MAX_FLOAT FLT_MAX
 const Float PI = Float(3.14159265358979323846);
 
-const size_t MAX_NGB = 1000;
+const size_t MAX_NGB = 200;
 
 //#define _LUNCH(n,tb,kernel) if (n>0) (kernel)<<<(n + tb - 1) / tb,tb>>>
 #define _LAUNCH(n,tb,kernel) (kernel)<<<(n + tb - 1) / tb,tb>>>

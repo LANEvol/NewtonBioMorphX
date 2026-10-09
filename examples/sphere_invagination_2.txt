@@ -6,7 +6,7 @@ H 5 5
 spacing 1 1 
 nFibers 0
 globalTime 0
-outputFileName ./output.vtk
+outputFileName ./output
 maxIter 200000
 timeThreshold 1e+07
 saveTime 100000
@@ -35,7 +35,7 @@ contactFact 1000
 contactFactVel 0
 repThickness 0.3
 bcTypes 0 0 2 2 0 2
-Layer 0
+Layer 1
 	nu 0.35
 	E 1.0
 	visc 0.1
@@ -44,7 +44,7 @@ Layer 0
 	grRate3_Ref 0.001 * (Theta<3.14/2)
 	plasticity 0.0
 	actin_Ref Tensor(0,0,0)
-Layer 1
+Layer 2
 	nu 0.35
 	E 10
 	visc 0.1

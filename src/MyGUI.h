@@ -171,7 +171,7 @@ namespace LagSol {
 
     extern bool crinkleClip;
     extern bool inverseClip;
-    extern int meshVisState;
+    extern int visMode;
     extern int sliceDir;
     extern bool paramChanged;
     extern bool colorChanged;
@@ -181,7 +181,6 @@ namespace LagSol {
     extern size_t simIter;
     extern size_t maxIter;
     extern int searchIter;
-    extern int iterCounter;
     extern int videoCounter;
     extern bool showBasis;
     extern bool showMeshQ;
@@ -229,6 +228,8 @@ namespace LagSol {
     extern thrust::device_vector<Vector> oldVel;
     extern thrust::device_vector<Tensor> oldFp;
     extern Float oldGlobalTime;
+    extern size_t oldSimIter;
+
 
 
     extern Float spacing;

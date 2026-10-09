@@ -38,23 +38,17 @@ __global__ void compute_orthogonal_basis_nvrtc(DeviceDataPtr *data, int ntet) {
         Float Z = tetCenter[2];
 
         /* default *///Vector nVec;
-        /* default *///Vector t1;
-        /* default *///Vector t2;
         /* default *///Vector tVec;
         /* default *///Vector bVec;
 
         /* default *///Float Theta;
         /* default *///Float Phi;
         /* default *///Float hapex;
+        /* default *///Float N;
+        /* default *///Float S;
 
-        /* default */data->R[i][0] = Float(1.0);
-        /* default */data->R[i][1] = Float(0.0);
-        /* default */data->R[i][2] = Float(0.0);
-        /* default */data->R[i][3] = Float(0.0);
-        /* default */data->R[i][4] = Float(1.0);
-        /* default */data->R[i][5] = Float(0.0);
-        /* default */data->R[i][6] = Float(0.0);
-        /* default */data->R[i][7] = Float(0.0);
-        /* default */data->R[i][8] = Float(1.0);
+        /* default *///Tensor Rmat;
+
+        data->R[i] = Rmat;
     }
 }

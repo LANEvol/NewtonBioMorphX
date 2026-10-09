@@ -77,11 +77,11 @@ namespace LagSol {
             Vector xac(xa-xc);
             Vector xad(xa-xd);
 
-            data->tetVol[i] = xac.cross(xab).dot(xad) * (1.0f / 6.0f);
-            atomicAdd(&(data->vol[data->tet[i].x]), data->tetVol[i]*0.25f);
-            atomicAdd(&(data->vol[data->tet[i].y]), data->tetVol[i]*0.25f);
-            atomicAdd(&(data->vol[data->tet[i].z]), data->tetVol[i]*0.25f);
-            atomicAdd(&(data->vol[data->tet[i].w]), data->tetVol[i]*0.25f);
+            data->tetVol[i] = xac.cross(xab).dot(xad) * (1.0f / 6.0);
+            atomicAdd(&(data->vol[a]), data->tetVol[i]*0.25);
+            atomicAdd(&(data->vol[b]), data->tetVol[i]*0.25);
+            atomicAdd(&(data->vol[c]), data->tetVol[i]*0.25);
+            atomicAdd(&(data->vol[d]), data->tetVol[i]*0.25);
 
         }
     }
@@ -183,56 +183,121 @@ namespace LagSol {
         }
     }
 
-    __global__ void compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa, Float kappaVel, Float repThickness, int nnbd) {
-        int i = blockIdx.x * blockDim.x + threadIdx.x;
-        Float ub, vb, wb;
-        Float hc = repThickness * spacing; // Thickness of repulsive skin
-        if (i < nnbd) {
-            int pp = data->boundaryNodeIds[i];
-            // Float Epp = data->ENodal[pp]/(1.f-data->nuNodal[pp]*data->nuNodal[pp]);
-            Vector point = Vector(data->pos[pp]);
-            for (int j = 0; j < data->ngb_size[i]; j++) {
-                int tid = data->ngb_list[data->ngb_offset[i] + j];
-                int t0 = data->tri_only_contact[tid].x;
-                int t1 = data->tri_only_contact[tid].y;
-                int t2 = data->tri_only_contact[tid].z;
-                if ((pp != t0) && (pp != t1) && (pp != t2)) {
-                    // Float E0 = data->ENodal[t0]/(1.f-data->nuNodal[t0]*data->nuNodal[t0]);
-                    // Float E1 = data->ENodal[t1]/(1.f-data->nuNodal[t1]*data->nuNodal[t1]);
-                    // Float E2 = data->ENodal[t2]/(1.f-data->nuNodal[t2]*data->nuNodal[t2]);
-                    // Float Et = (E0+E1+E2)/3.0f;
+    // __global__ void compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa, Float kappaVel, Float repThickness, int nnbd) {
+    //     int i = blockIdx.x * blockDim.x + threadIdx.x;
+    //     Float ub, vb, wb;
+    //     Float hc = repThickness * spacing; // Thickness of repulsive skin
+    //     if (i < nnbd) {
+    //         int pp = data->boundaryNodeIds[i];
+    //         // Float Epp = data->ENodal[pp]/(1.f-data->nuNodal[pp]*data->nuNodal[pp]);
+    //         Vector point = Vector(data->pos[pp]);
+    //         for (int j = 0; j < data->ngb_size[i]; j++) {
+    //             int tid = data->ngb_list[data->ngb_offset[i] + j];
+    //             int t0 = data->tri_only_contact[tid].x;
+    //             int t1 = data->tri_only_contact[tid].y;
+    //             int t2 = data->tri_only_contact[tid].z;
+    //             if ((pp != t0) && (pp != t1) && (pp != t2)) {
+    //                 // Float E0 = data->ENodal[t0]/(1.f-data->nuNodal[t0]*data->nuNodal[t0]);
+    //                 // Float E1 = data->ENodal[t1]/(1.f-data->nuNodal[t1]*data->nuNodal[t1]);
+    //                 // Float E2 = data->ENodal[t2]/(1.f-data->nuNodal[t2]*data->nuNodal[t2]);
+    //                 // Float Et = (E0+E1+E2)/3.0f;
+    //
+    //                 Vector cc = closestPointTriangle(point, data->pos[t0], data->pos[t1], data->pos[t2], ub, vb, wb) - point;
+    //                 Float rc = cc.mag();
+    //                 if (rc < hc) {
+    //                     cc = cc / rc;
+    //                     Float delta = hc - rc;
+    //                     // Vector nodeVel(data->vel[pp]);
+    //                     // Vector aVel(data->vel[t0]);
+    //                     // Vector bVel(data->vel[t1]);
+    //                     // Vector cVel(data->vel[t2]);
+    //                     // Vector velRel = (aVel * ub + bVel * vb + cVel * wb) - nodeVel;
+    //                     // Float K = kappa * (Et*Epp)/(Et+Epp) * std::sqrt(hc * delta);
+    //                     // Vector fn = cc * (K * delta - kappaVel * std::sqrt(spacing * delta) * velRel.dot(cc));
+    //                     Float K = kappa * std::sqrt(hc * delta);
+    //                     Vector fn = cc * K * delta;
+    //                     atomicAdd(&(data->force[t0][0]), fn[0] * ub);
+    //                     atomicAdd(&(data->force[t0][1]), fn[1] * ub);
+    //                     atomicAdd(&(data->force[t0][2]), fn[2] * ub);
+    //                     atomicAdd(&(data->force[t1][0]), fn[0] * vb);
+    //                     atomicAdd(&(data->force[t1][1]), fn[1] * vb);
+    //                     atomicAdd(&(data->force[t1][2]), fn[2] * vb);
+    //                     atomicAdd(&(data->force[t2][0]), fn[0] * wb);
+    //                     atomicAdd(&(data->force[t2][1]), fn[1] * wb);
+    //                     atomicAdd(&(data->force[t2][2]), fn[2] * wb);
+    //                     atomicAdd(&(data->force[pp][0]),-fn[0]);
+    //                     atomicAdd(&(data->force[pp][1]),-fn[1]);
+    //                     atomicAdd(&(data->force[pp][2]),-fn[2]);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
-                    Vector cc = closestPointTriangle(point, data->pos[t0], data->pos[t1], data->pos[t2], ub, vb, wb) - point;
-                    Float rc = cc.mag();
-                    if (rc < hc) {
-                        cc = cc / rc;
-                        Float delta = hc - rc;
-                        // Vector nodeVel(data->vel[pp]);
-                        // Vector aVel(data->vel[t0]);
-                        // Vector bVel(data->vel[t1]);
-                        // Vector cVel(data->vel[t2]);
-                        // Vector velRel = (aVel * ub + bVel * vb + cVel * wb) - nodeVel;
-                        // Float K = kappa * (Et*Epp)/(Et+Epp) * std::sqrt(hc * delta);
-                        // Vector fn = cc * (K * delta - kappaVel * std::sqrt(spacing * delta) * velRel.dot(cc));
-                        Float K = kappa * std::sqrt(hc * delta);
-                        Vector fn = cc * K * delta;
-                        atomicAdd(&(data->force[t0][0]), fn[0] * ub);
-                        atomicAdd(&(data->force[t0][1]), fn[1] * ub);
-                        atomicAdd(&(data->force[t0][2]), fn[2] * ub);
-                        atomicAdd(&(data->force[t1][0]), fn[0] * vb);
-                        atomicAdd(&(data->force[t1][1]), fn[1] * vb);
-                        atomicAdd(&(data->force[t1][2]), fn[2] * vb);
-                        atomicAdd(&(data->force[t2][0]), fn[0] * wb);
-                        atomicAdd(&(data->force[t2][1]), fn[1] * wb);
-                        atomicAdd(&(data->force[t2][2]), fn[2] * wb);
-                        atomicAdd(&(data->force[pp][0]),-fn[0]);
-                        atomicAdd(&(data->force[pp][1]),-fn[1]);
-                        atomicAdd(&(data->force[pp][2]),-fn[2]);
-                    }
-                }
-            }
+    __global__ void compute_contact_force(DeviceDataPtrManaged *data, Float spacing, Float kappa,
+                                          Float zeta, Float dt, Float repThickness, int nnbd) {
+        int i = blockIdx.x * blockDim.x + threadIdx.x;
+        if (i >= nnbd) return;
+
+        Float ub, vb, wb;
+        const Float hc = repThickness * spacing;               // thickness of repulsive skin
+        const int pp = data->boundaryNodeIds[i];
+        const Vector point = Vector(data->pos[pp]);
+
+        for (int j = 0; j < data->ngb_size[i]; j++) {
+            const int tid = data->ngb_list[data->ngb_offset[i] + j];
+            const int t0 = data->tri_only_contact[tid].x;
+            const int t1 = data->tri_only_contact[tid].y;
+            const int t2 = data->tri_only_contact[tid].z;
+            if (pp == t0 || pp == t1 || pp == t2) continue;
+
+            Vector cc = closestPointTriangle(point, data->pos[t0], data->pos[t1], data->pos[t2],
+                                             ub, vb, wb) - point;
+            const Float rc = cc.mag();
+            if (rc >= hc || rc < Float(1e-6) * spacing) continue;   // outside skin, or degenerate (avoids 0/0)
+            cc = cc / rc;                                           // unit vector node -> triangle
+            const Float delta = hc - rc;
+
+            // Hertzian elastic force (>= 0)
+            const Float K  = kappa * sqrt(hc * delta);
+            const Float Fe = K * delta;
+
+            // Relative normal velocity: > 0 separating, < 0 approaching
+            const Vector velRel = Vector(data->vel[t0]) * ub + Vector(data->vel[t1]) * vb
+                                + Vector(data->vel[t2]) * wb - Vector(data->vel[pp]);
+            const Float vn = velRel.dot(cc);
+
+            // Effective mass of the node / triangle-point pair along cc
+            // (replace data->nodeMass with your lumped nodal mass array)
+            const Float invM = Float(1) / data->vol[pp]
+                             + ub * ub / data->vol[t0]
+                             + vb * vb / data->vol[t1]
+                             + wb * wb / data->vol[t2];
+            const Float meff = Float(1) / invM;
+
+            // Damping coefficient from damping ratio, capped for explicit-integration stability
+            Float c = 2 * zeta * sqrt(meff * Float(1.5) * K);
+            c = fmin(c, meff / dt);
+
+            // Total normal force, never attractive
+            const Float Fn = fmax(Float(0), Fe - c * vn);
+            const Vector fn = cc * Fn;
+
+            atomicAdd(&(data->force[t0][0]), fn[0] * ub);
+            atomicAdd(&(data->force[t0][1]), fn[1] * ub);
+            atomicAdd(&(data->force[t0][2]), fn[2] * ub);
+            atomicAdd(&(data->force[t1][0]), fn[0] * vb);
+            atomicAdd(&(data->force[t1][1]), fn[1] * vb);
+            atomicAdd(&(data->force[t1][2]), fn[2] * vb);
+            atomicAdd(&(data->force[t2][0]), fn[0] * wb);
+            atomicAdd(&(data->force[t2][1]), fn[1] * wb);
+            atomicAdd(&(data->force[t2][2]), fn[2] * wb);
+            atomicAdd(&(data->force[pp][0]), -fn[0]);
+            atomicAdd(&(data->force[pp][1]), -fn[1]);
+            atomicAdd(&(data->force[pp][2]), -fn[2]);
         }
     }
+
 
     __global__ void compute_kenergy(DeviceDataPtrManaged *data, int nver) {
         int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -269,58 +334,47 @@ namespace LagSol {
     }
 
     __global__ void distCheckKernel(
-            const Vector* __restrict__ pos1,
-            const Vector* __restrict__ pos2,
-            const Float* __restrict__ h1,
-            const Float* __restrict__ h2,
+            const Vector* __restrict__ pos1, const Vector* __restrict__ pos2,
+            const Float* __restrict__ h1,    const Float* __restrict__ h2,
             Int nP1, Int nP2, Int maxNgb,
-            const Int* p2,
-            Int* __restrict__ ngbSize,
-            Int* __restrict__ ngbIds) {
+            const Int* __restrict__ p2,
+            Int* __restrict__ ngbSize, Int* __restrict__ ngbIds) {
+        constexpr Int TILE = 64;                 // launch with blockDim.x == TILE
+        __shared__ Vector sPos1[TILE];
+        __shared__ Float  sH1[TILE];
 
-        const Int BLOCK_SIZE = 64;
-        Int idx = blockDim.x * blockIdx.x + threadIdx.x;
-
-        __shared__ Vector sPos1[BLOCK_SIZE];
-        __shared__ double sH1[BLOCK_SIZE];
+        const Int idx   = blockDim.x * blockIdx.x + threadIdx.x;
+        const bool valid = idx < nP2;
 
         Vector aPos2(MAX_FLOAT);
-        Float aH2(0.0);
-        Int aP2(-1);
+        Float  aH2 = 0;
+        Int    aP2 = -1;
+        if (valid) { aPos2 = pos2[idx]; aH2 = h2[idx]; aP2 = p2[idx]; }
 
-        if (idx < nP2) {
-            aPos2 = pos2[idx];
-            aH2 = h2[idx];
-            aP2 = p2[idx];
-        }
-
-        Int i = 0;
-        Int k = 0;
-        Int rem = nP1%BLOCK_SIZE;
-        while (i < (nP1 - rem)) {
+        for (Int base = 0; base < nP1; base += TILE) {   // loop bound is uniform: syncthreads is safe
+            const Int cnt = min(TILE, nP1 - base);
             __syncthreads();
-            sPos1[threadIdx.x] = pos1[k*BLOCK_SIZE + threadIdx.x];
-            sH1  [threadIdx.x] = h1  [k*BLOCK_SIZE + threadIdx.x];
-            __syncthreads();
-            for (Int j = 0; j<BLOCK_SIZE; j++) {
-                Vector dist = sPos1[j] - aPos2;
-                Float  h12  = sH1[j]   + aH2;
-                if (dist.mag2() <  h12 *  h12) {
-                    ngbIds[atomicAdd(&ngbSize[i],1) + maxNgb * i] = aP2;
-                }
-                i++;
+            if (threadIdx.x < cnt) {
+                sPos1[threadIdx.x] = pos1[base + threadIdx.x];
+                sH1[threadIdx.x]   = h1[base + threadIdx.x];
             }
-            k++;
-        }
-        while (i < nP1) {
-            Vector dist = pos1[i] - aPos2;
-            Float h12 = h1[i] + aH2;
-            if (dist.mag2() < h12 * h12)
-                ngbIds[atomicAdd(&ngbSize[i],1) + maxNgb * i] = aP2;
-            i++;
+            __syncthreads();
+
+            if (valid) {
+                for (Int j = 0; j < cnt; j++) {
+                    const Vector d   = sPos1[j] - aPos2;
+                    const Float  h12 = sH1[j] + aH2;
+                    if (d.mag2() < h12 * h12) {
+                        const Int row = base + j;
+                        const Int n   = atomicAdd(&ngbSize[row], 1);
+                        if (n < maxNgb)                              // never write past the row
+                            ngbIds[(size_t)maxNgb * row + n] = aP2;
+                    }
+                }
+            }
         }
     }
-
+    
     __host__ __device__ Vector closestPointTriangle(const Vector &p, const Vector &a, const Vector &b, const Vector &c, Float &u, Float &v, Float &w) {
         Vector ab = b - a;
         Vector ac = c - a;

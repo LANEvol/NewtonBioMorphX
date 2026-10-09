@@ -90,10 +90,12 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, bool useBbar, Float dt,
         Float Z = tetCenterRef[2];
 
         /* default *///Float R;
-
         /* default *///Float Phi;
-
         /* default *///Float Theta;
+        /* default *///Float hapex;
+        /* default *///Float N;
+        /* default *///Float S;
+
 //////////////////////////////////////////////
         /* default */Float E = 1.0;
         /* default */Float nu = 0.4;
@@ -159,9 +161,9 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, bool useBbar, Float dt,
         Float mu = E / (2.0 + 2.0 * nu); // Shear modulus
 
         Float pressure = -K * (1.0 - 1.0/Je) / Jg;
-        Tensor S = mu * Be.dev() * pow(Je, Float(-2.0 / 3.0)) / (Je * Jg) - Tensor::eye() * pressure;
+        Tensor sTens = mu * Be.dev() * pow(Je, Float(-2.0 / 3.0)) / (Je * Jg) - Tensor::eye() * pressure;
 
-        data->vonMises[i] = sqrt(3.0/2.0*S.dev().norm2());
+        data->vonMises[i] = sqrt(3.0/2.0*sTens.dev().norm2());
         data->pressure[i] = pressure;
         data->potEnergy[i] = (mu * (Be.trace() * pow(Je, Float(-2.0 / 3.0)) - 3.0) + K * (Je - log(Je)- 1.0)) * data->tetVol[i] +
                             0.5 * (data->vel[a]+data->vel[b]+data->vel[c]+data->vel[d]).mag2()/16.0 * data->tetVol[i];
@@ -182,21 +184,21 @@ __global__ void compute_force_nvrtc(DeviceDataPtr *data, bool useBbar, Float dt,
         fiber4_Ref = Rmat.dot(fiber4_Ref).dot(Rmat.trans());
         actin_Ref = Rmat.dot(actin_Ref).dot(Rmat.trans());
 
-        if (k1>0 && fiber1_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber1_Ref).dot(F.trans()), fiber1_Ref, J, k1, k2);
-        if (k1>0 && fiber2_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber2_Ref).dot(F.trans()), fiber2_Ref, J, k1, k2);
-        if (k1>0 && fiber3_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber3_Ref).dot(F.trans()), fiber3_Ref, J, k1, k2);
-        if (k1>0 && fiber4_Ref.norm2()>0.0) S = S + get_fiber_stress(F.dot(fiber4_Ref).dot(F.trans()), fiber4_Ref, J, k1, k2);
+        if (k1>0 && fiber1_Ref.norm2()>0.0) sTens = sTens + get_fiber_stress(F.dot(fiber1_Ref).dot(F.trans()), fiber1_Ref, J, k1, k2);
+        if (k1>0 && fiber2_Ref.norm2()>0.0) sTens = sTens + get_fiber_stress(F.dot(fiber2_Ref).dot(F.trans()), fiber2_Ref, J, k1, k2);
+        if (k1>0 && fiber3_Ref.norm2()>0.0) sTens = sTens + get_fiber_stress(F.dot(fiber3_Ref).dot(F.trans()), fiber3_Ref, J, k1, k2);
+        if (k1>0 && fiber4_Ref.norm2()>0.0) sTens = sTens + get_fiber_stress(F.dot(fiber4_Ref).dot(F.trans()), fiber4_Ref, J, k1, k2);
 
         if (actin_Ref.norm2()>0.0) {
-            S = S + F.dot(actin_Ref).dot(F.trans());
+            sTens = sTens + F.dot(actin_Ref).dot(F.trans());
         }
 
-        S = S + (velGrad+velGrad.trans()) * 0.5 * visc + Tensor::eye()*velGrad.trace() * 0.5 * visc;
+        sTens = sTens + (velGrad+velGrad.trans()) * 0.5 * visc + Tensor::eye()*velGrad.trace() * 0.5 * visc;
 
-        Vector forcea = S.dot(areaa)*(-1.0f/3.0);
-        Vector forceb = S.dot(areab)*(-1.0f/3.0);
-        Vector forcec = S.dot(areac)*(-1.0f/3.0);
-        Vector forced = S.dot(aread)*(-1.0f/3.0);
+        Vector forcea = sTens.dot(areaa)*(-1.0f/3.0);
+        Vector forceb = sTens.dot(areab)*(-1.0f/3.0);
+        Vector forcec = sTens.dot(areac)*(-1.0f/3.0);
+        Vector forced = sTens.dot(aread)*(-1.0f/3.0);
 
 #pragma unroll
         for (int j=0; j<3; j++) {

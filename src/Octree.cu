@@ -59,40 +59,6 @@ namespace LagSol {
         }
     }
 
-    __global__ void findBranchNgbKernel(Int* __restrict__ ngbIds,
-                                        Int* __restrict__ ngbSize,
-                                        const Vector* bMinPos1,
-                                        const Vector* bMaxPos1,
-                                        const Vector* bMinPos2,
-                                        const Vector* bMaxPos2,
-                                        UInt maxBranchNgb,
-                                        Int nBranches1,
-                                        Int nBranches2) {
-        Int idx = blockIdx.x*blockDim.x + threadIdx.x;
-        if (idx < nBranches1) {
-            ngbSize[idx] = 0;
-            for (Int j = 0; j < nBranches2; j++)
-                if (getIntersection(bMinPos1[idx],bMaxPos1[idx],
-                                    bMinPos2[j  ],bMaxPos2[j  ])) {
-                    if (ngbSize[idx] < maxBranchNgb) {
-                        ngbIds[ngbSize[idx] + idx * maxBranchNgb] = j;
-//                  } else {
-//                        printf("maxBranchNgb exceeds! %d %d %d %d \n",ngbSize[idx],nBranches1,idx,j);
-                    }
-                    ngbSize[idx]++;
-                }
-        }
-    }
-
-
-    __global__ void copyToNgbVector(Int* __restrict__ output, const Int* ngbIds, const Int* ngbSize, const Int* ngbOffset, UInt maxBranchNgb, Int nBranches) {
-        Int idx = blockIdx.x * blockDim.x + threadIdx.x;
-        if (idx < nBranches) {
-            Int k = idx * maxBranchNgb;
-            thrust::copy(thrust::seq,ngbIds + k, ngbIds + k + ngbSize[idx], output + ngbOffset[idx]);
-        }
-    }
-
     Octree::Octree(const thrust::device_vector<Vector>& pos,
                     const thrust::device_vector<Float>& h,
                     const thrust::device_vector<UIntM>& mKey,
@@ -102,20 +68,6 @@ namespace LagSol {
         maxLevel = _maxLevel;
         create(mKey);
         findBranchsMinMax(pos,h);
-
-        // std::cout<<"------------------------------------------"<<std::endl;
-        // for (int i=0; i<bCode.size(); i++) {
-        //     Vector minPosTemp(bMinPos[i]);
-        //     Vector maxPosTemp(bMaxPos[i]);
-        //
-        //     std::cout<<i<<","<<bPNum[i]<<","<<bLevel[i]<< std::endl;
-        //     std::cout<<" " << minPosTemp.x<<" "<< minPosTemp.y<<" "<< minPosTemp.z<<" "<<" : "<<std::endl;
-        //     std::cout<<" " << maxPosTemp.x<<" "<< maxPosTemp.y<<" "<< maxPosTemp.z<<" "<<" : ";
-        //     // for (int j=0; j<bNgbSize[i]; j++)
-        //     //     std::cout<<bNgbIds[bNgbOffset[i]+j]<<" ";
-        //     std::cout<<std::endl;
-        //     std::cout<<std::endl;
-        // }
     };
 
     void Octree::clear() {
@@ -196,44 +148,65 @@ namespace LagSol {
         }
     }
 
+
+    // Pass 1: number of treeF branches whose bounding box intersects each treeN branch
+    __global__ void countBranchNgbKernel(Int* __restrict__ ngbSize,
+                                         const Vector* bMinPos1, const Vector* bMaxPos1,
+                                         const Vector* bMinPos2, const Vector* bMaxPos2,
+                                         Int nBranches1, Int nBranches2) {
+        Int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < nBranches1) {
+            Int n = 0;
+            for (Int j = 0; j < nBranches2; j++)
+                if (getIntersection(bMinPos1[idx], bMaxPos1[idx], bMinPos2[j], bMaxPos2[j]))
+                    n++;
+            ngbSize[idx] = n;
+        }
+    }
+
+    // Pass 2: write the neighbour ids at each branch's offset (exact size, no limit)
+    __global__ void fillBranchNgbKernel(Int* __restrict__ ngbIds, const Int* ngbOffset,
+                                        const Vector* bMinPos1, const Vector* bMaxPos1,
+                                        const Vector* bMinPos2, const Vector* bMaxPos2,
+                                        Int nBranches1, Int nBranches2) {
+        Int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx < nBranches1) {
+            Int k = ngbOffset[idx];
+            for (Int j = 0; j < nBranches2; j++)
+                if (getIntersection(bMinPos1[idx], bMaxPos1[idx], bMinPos2[j], bMaxPos2[j]))
+                    ngbIds[k++] = j;
+        }
+    }
+
     void findBranchsNgb(const Octree& treeN,
                         const Octree& treeF,
-                        thrust::device_vector<Int>& bNgbIds,      // This array contains the index of the branches in treeF who intersect with branches in treeN.
-                        thrust::device_vector<Int>& bNgbSize,     // This array contains the the number of neighbors for each branch.
-                        thrust::device_vector<Int>& bNgbOffset) { // This array contains the exclusive summation of the neighbors number for each branch.
-
-        int maxBranchNgb = 500;
-        Int nBranches = treeN.bCode.size();
-        bNgbIds.resize(nBranches * maxBranchNgb);
-        bNgbSize.resize(nBranches,0);
-        if (nBranches==0)
+                        thrust::device_vector<Int>& bNgbIds,      // ids of the treeF branches intersecting each treeN branch
+                        thrust::device_vector<Int>& bNgbSize,     // number of neighbours of each branch
+                        thrust::device_vector<Int>& bNgbOffset) { // exclusive sum of bNgbSize
+        Int nBranches1 = treeN.bCode.size();
+        Int nBranches2 = treeF.bCode.size();
+        bNgbSize.assign(nBranches1, 0);
+        bNgbOffset.assign(nBranches1, 0);
+        bNgbIds.clear();
+        if (nBranches1 == 0 || nBranches2 == 0)
             return;
-        _LAUNCH(nBranches,512,findBranchNgbKernel)(
-               thrust::raw_pointer_cast(bNgbIds.data()),
+
+        _LAUNCH(nBranches1, 512, countBranchNgbKernel)(
                thrust::raw_pointer_cast(bNgbSize.data()),
-               thrust::raw_pointer_cast(treeN.bMinPos.data()),
-               thrust::raw_pointer_cast(treeN.bMaxPos.data()),
-               thrust::raw_pointer_cast(treeF.bMinPos.data()),
-               thrust::raw_pointer_cast(treeF.bMaxPos.data()),
-               maxBranchNgb,
-               treeN.bCode.size(),
-               treeF.bCode.size());
-        
+               thrust::raw_pointer_cast(treeN.bMinPos.data()), thrust::raw_pointer_cast(treeN.bMaxPos.data()),
+               thrust::raw_pointer_cast(treeF.bMinPos.data()), thrust::raw_pointer_cast(treeF.bMaxPos.data()),
+               nBranches1, nBranches2);
         cudaDeviceSynchronize();
 
-        bNgbOffset.resize(nBranches);
-        thrust::exclusive_scan(bNgbSize.begin(),bNgbSize.end(),bNgbOffset.begin());
+        thrust::exclusive_scan(bNgbSize.begin(), bNgbSize.end(), bNgbOffset.begin());
+        bNgbIds.resize(bNgbOffset.back() + bNgbSize.back());
 
-        thrust::device_vector<Int> tempIds(bNgbOffset.back() + bNgbSize.back());
-
-        _LAUNCH(nBranches,512,copyToNgbVector)(
-                thrust::raw_pointer_cast(tempIds.data()),
-                thrust::raw_pointer_cast(bNgbIds.data()),
-                thrust::raw_pointer_cast(bNgbSize.data()),
-                thrust::raw_pointer_cast(bNgbOffset.data()),
-                maxBranchNgb, nBranches);
+        _LAUNCH(nBranches1, 512, fillBranchNgbKernel)(
+               thrust::raw_pointer_cast(bNgbIds.data()),
+               thrust::raw_pointer_cast(bNgbOffset.data()),
+               thrust::raw_pointer_cast(treeN.bMinPos.data()), thrust::raw_pointer_cast(treeN.bMaxPos.data()),
+               thrust::raw_pointer_cast(treeF.bMinPos.data()), thrust::raw_pointer_cast(treeF.bMaxPos.data()),
+               nBranches1, nBranches2);
         cudaDeviceSynchronize();
-        bNgbIds = tempIds;
-    };
-
+    }
 }

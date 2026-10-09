@@ -7,7 +7,7 @@ H 5
 spacing 1 
 nFibers 2
 globalTime 0
-outputFileName ./../output.vtk
+outputFileName ./output
 maxIter 200000
 timeThreshold 1e+07
 saveTime 100000
@@ -38,7 +38,7 @@ contactFact 500
 contactFactVel 0
 repThickness 0.3
 bcTypes 1 0 0 0 0 0
-Layer 0
+Layer 1
 	isRigid 0
 	nu 0.25
 	E 1.0

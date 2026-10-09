@@ -55,6 +55,7 @@ namespace fs = std::filesystem;
 
 #include "sys/stat.h"
 #include "MeshOp.h"
+#include "Main.h"
 
 std::mutex mtx;
 std::condition_variable runSim;
@@ -108,14 +109,17 @@ std::unordered_map<std::string, std::any> dataToSave = {
     // {"ScalarFun", &data.scalarFunction},
     // {"actin1Deca", &data.actin1Deca},
     // {"actin2Deca", &data.actin2Deca},
-    // {"fiber1", &data.fiber1},
-    // {"fiber2", &data.fiber2},
-    // {"fiber3", &data.fiber3},
-    // {"fiber4", &data.fiber4},
+    {"fiber1", &data.fiber1},
+    {"fiber2", &data.fiber2},
+    //{"fiber3", &data.fiber3},
+    //{"fiber4", &data.fiber4},
     // {"stress", &data.stress},
     // {"Fg", &data.Fg},
     // {"Fp", &data.Fp},
-    // {"actin1", &data.actin1},
+    {"actin", &data.actin},
+    {"grRate1", &data.grRate1},
+    {"grRate2", &data.grRate2},
+    {"grRate3", &data.grRate3},
     // {"actin1Prod", &data.actin1Prod},
     // {"actin1Diff", &data.actin1Diff},
     // {"actin2", &data.actin2},
@@ -156,7 +160,7 @@ void clampScalarArray(ScalarArrayEigen& scalar, Float& minS, Float& maxS, const 
 }
 
 bool isSimDiverged() {
-    get_domain_limits(data.pos);
+    // get_domain_limits(data.pos);
     return thrust::any_of(data.force.begin(), data.force.end(), is_not_a_finite_Vector())
     // || ((minPos - maxPos).mag() > charLRef*5.0f)
     || thrust::any_of(data.vel.begin(), data.vel.end(), is_not_a_finite_Vector(charLRef/maxDt));
@@ -222,7 +226,7 @@ bool inline ImGuiMessage(const bool& cond, const std::string& title, const std::
     return res;
 }
 
-void getAverageAndSTD(float* avgSTD, const float *data, int N) {
+void getAverageAndSD(float* avgSTD, const float *data, int N) {
     int wSum = 0;
     avgSTD[0] = 0.0f;
     avgSTD[1] = 0.0f;
@@ -248,71 +252,103 @@ void getAverageAndSTD(float* avgSTD, const float *data, int N) {
     }	    
 }
 
-#define IMGUI_DISABLE_WIDGET {ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true); ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);}
-#define IMGUI_ENABLE_WIDGET {ImGui::PopItemFlag(); ImGui::PopStyleVar();}
+// Disabled regions use ImGui::BeginDisabled(cond) / ImGui::EndDisabled().
+// Both are always called, so the stack stays balanced even if cond changes mid-region.
 
-void inline ImGuiParamReadRow(const std::string& lable, std::string &expression , bool &useMeshDef, const bool meshDefAvailable, bool& paramChanged) {
-    char readBuf[2048] = "";
-    char editBuf[2048] = "";
-    std::copy_n(expression.begin(), std::min(sizeof(readBuf) - 1, expression.size()), readBuf);
-
-    ImGui::TableNextRow();
-    ImGui::TableNextColumn();
-    ImGui::Text(lable.c_str());
-    ImGui::TableNextColumn();
-
-    if (!meshDefAvailable) IMGUI_DISABLE_WIDGET
-        if (ImGui::Checkbox(("##File"+lable).c_str(), &useMeshDef))
-            paramChanged = true;
-        DelayedTooltip("Use mesh file data for "+lable, 0.1);
-        ImGui::SameLine();
-    if (!meshDefAvailable) IMGUI_ENABLE_WIDGET
-
-    if (useMeshDef && meshDefAvailable) IMGUI_DISABLE_WIDGET
-
-    ImGui::SameLine();
-    // ImGui::SetWindowFontScale(0.70f);
-    ImGui::InputTextEx(("##small"+lable).c_str(), NULL, readBuf, sizeof(readBuf), ImVec2(-1,0), ImGuiInputTextFlags_ReadOnly);
-    // ImGui::SetWindowFontScale(1.0f);
-    if (ImGui::IsItemActivated()) {        // When clicked, open the big editor
-        ImGui::OpenPopup(lable.c_str());
-    }
-
-    if (ImGui::BeginPopup(lable.c_str())) {
-        std::copy_n(expression.begin(), std::min(sizeof(editBuf) - 1, expression.size()), editBuf);
-        if (ImGui::InputTextMultiline(("##big"+lable).c_str(), editBuf, sizeof(editBuf), ImVec2(600, 200))) {
-            expression = std::string(editBuf);
-            paramChanged = true;
-        }
-        ImGui::EndPopup();
-    }
-
-
-    if (useMeshDef && meshDefAvailable) IMGUI_ENABLE_WIDGET
-
+// Enter or keypad Enter pressed this frame (no key repeat), for old and new ImGui key APIs.
+// Before 1.87, IsKeyPressed() takes the backend key index (SDL scancode), so ImGuiKey_*
+// values must go through GetKeyIndex(); from 1.87 on, ImGuiKey_* values are passed directly.
+static bool IsEnterPressed()
+{
+#if IMGUI_VERSION_NUM >= 18700
+    return ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+#else
+    return ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Enter), false) ||
+           ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_KeyPadEnter), false);
+#endif
 }
 
-void inline ImGuiParamRead(const std::string& lable, std::string &expression, bool& paramChanged) {
-    char smallBuf[64] = "";
-    char bigBuf[2048] = "";
-    std::copy_n(expression.begin(), std::min(sizeof(smallBuf) - 1, expression.size()), smallBuf);
+// Read-only preview of an expression; clicking it opens a popup editor at the mouse.
+// previewWidth: as ImGui item width (-1 = fill the column, 0 = default item width).
+// previewScale: font scale of the preview, relative to the window's current scale.
+// Returns true when the expression was edited.
+static bool ExpressionField(const std::string& lable, std::string& expression,
+                            float previewWidth, float previewScale, const std::string& info)
+{
+    bool changed = false;
 
-    ImGui::SameLine();
-    ImGui::SetWindowFontScale(0.70f);
-    ImGui::InputText(("##small"+lable).c_str(), smallBuf, sizeof(smallBuf), ImGuiInputTextFlags_ReadOnly);
-    ImGui::SetWindowFontScale(1.0f);
-    if (ImGui::IsItemActivated()) {        // When clicked, open the big editor
+    // ---- preview field (read-only, shows the whole expression, no fixed-size buffer) ----
+    std::string preview = expression;
+    ImGuiWindow* window = ImGui::GetCurrentWindow();
+    const float prevScale = window->FontWindowScale;
+    if (previewScale != 1.0f)
+        ImGui::SetWindowFontScale(prevScale * previewScale);
+    ImGui::InputTextEx(("##small"+lable).c_str(), NULL, preview.data(), static_cast<int>(preview.size()) + 1,
+                       ImVec2(previewWidth, 0), ImGuiInputTextFlags_ReadOnly);
+    const bool openEditor = ImGui::IsItemActivated();     // click on the small field opens the big editor
+    if (previewScale != 1.0f)
+        ImGui::SetWindowFontScale(prevScale);             // restore, don't reset to 1.0
+    if (openEditor)
         ImGui::OpenPopup(lable.c_str());
-    }
 
+    // ---- editor popup ----
+    const float fieldW = ImGui::GetFontSize() * 30.0f;                    // edit field width (~30 characters)
+    const float winW   = fieldW + 2.0f * ImGui::GetStyle().WindowPadding.x;
+
+    ImGui::SetNextWindowPos(ImGui::GetMousePos(), ImGuiCond_Appearing);   // top-left corner at the click
+    ImGui::SetNextWindowSizeConstraints(ImVec2(winW, 0.0f), ImVec2(winW, FLT_MAX));
     if (ImGui::BeginPopup(lable.c_str())) {
-        std::copy_n(expression.begin(), std::min(sizeof(bigBuf) - 1, expression.size()), bigBuf);
-        if (ImGui::InputTextMultiline(("##big"+lable).c_str(), bigBuf, sizeof(bigBuf), ImVec2(400, 200))) {
-            expression = std::string(bigBuf);
-            paramChanged = true;
+        // Enter closes the editor. Checked before the field is drawn, so the field never
+        // receives the key (no newline is added to the expression).
+        if (IsEnterPressed()) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return false;
         }
+
+        if (ImGui::IsWindowAppearing())
+            ImGui::SetKeyboardFocusHere();                                // type immediately
+
+        ImGui::PushID(lable.c_str());
+        changed = InputTextAutoWrap("##expr", expression, fieldW);
+
+        if (!info.empty()) {
+            ImGui::Spacing();
+            InfoMarker(info);                                             // "i" below the field, at the left edge
+        }
+        ImGui::PopID();
         ImGui::EndPopup();
     }
+    return changed;
+}
+
+// Table row: label | [use-mesh-data checkbox] [expression field filling the column]
+void inline ImGuiParamReadRow(const std::string& lable, std::string &expression,
+                              bool &useMeshDef, const bool meshDefAvailable,
+                              bool& paramChanged, const std::string& info = "")
+{
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(lable.c_str());      // Text(lable.c_str()) breaks if a label contains '%'
+    ImGui::TableNextColumn();
+
+    ImGui::BeginDisabled(!meshDefAvailable);
+    if (ImGui::Checkbox(("##File"+lable).c_str(), &useMeshDef))
+        paramChanged = true;
+    DelayedTooltip("Use mesh file data for "+lable, 0.1);
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(useMeshDef && meshDefAvailable);
+    paramChanged |= ExpressionField(lable, expression, -1.0f, 1.0f, info);
+    ImGui::EndDisabled();
+}
+
+// Compact expression field on the current line (used in the boundary-condition table)
+void inline ImGuiParamRead(const std::string& lable, std::string &expression,
+                           bool& paramChanged, const std::string& info = "") {
+    ImGui::SameLine();
+    paramChanged |= ExpressionField(lable, expression, 0.0f, 0.70f, info);
 }
 
 bool hasNonZeroVectorString(std::string input) {
@@ -394,7 +430,7 @@ ScalarArrayEigen device_to_vis_data<Float>(const thrust::device_vector<Float>& d
     thrust::host_vector<Float> hostData(devData);
     ScalarArrayEigen visData(Eigen::Map<ScalarArrayEigen>(reinterpret_cast<Float *>(hostData.data()), hostData.size()));
     if (hostData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return visData(tetMap);
     return visData;
 }
 
@@ -410,7 +446,7 @@ ScalarArrayEigen device_to_vis_data<Vector>(const thrust::device_vector<Vector>&
     else
         visData = mappedData.rowwise().norm();
     if (devData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return visData(tetMap);      // gather into the return object: no aliasing
     return visData;
 };
 
@@ -428,7 +464,7 @@ ScalarArrayEigen device_to_vis_data<Tensor>(const thrust::device_vector<Tensor>&
     } else
         visData = mappedData.rowwise().norm();
     if (devData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return visData(tetMap);
     return visData;
 };
 
@@ -437,9 +473,9 @@ ScalarArrayEigen device_to_vis_data_section<Float>(const thrust::device_vector<F
     thrust::host_vector<Float> hostData(devData);
     ScalarArrayEigen visData(Eigen::Map<ScalarArrayEigen>(reinterpret_cast<Float *>(hostData.data()), hostData.size()));
     if (hostData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return visData(tetMap);
     else
-        visData = (BC * visData.matrix()).array();
+        return (BC * visData.matrix()).array();
     return visData;
 }
 
@@ -457,9 +493,9 @@ ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<Tensor>&
     else
         visData = mappedData.rowwise().norm();
     if (hostData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return  visData(tetMap);
     else
-        visData = (BC * visData.matrix()).array();
+        return (BC * visData.matrix()).array();
 
     return visData;
 };
@@ -476,11 +512,12 @@ ScalarArrayEigen device_to_vis_data_section(const thrust::device_vector<Vector>&
     else
         visData = mappedData.rowwise().norm();
     if (hostData.size() == mesh.ntet)
-        visData = visData(tetMap);
+        return visData(tetMap);
     else
-        visData = (BC * visData.matrix()).array();
+        return (BC * visData.matrix()).array();
     return visData;
 };
+
 
 ScalarArrayEigen device_to_vis_data_tet_mesh(const std::any &selectedData, int selectedDataComp, const Eigen::VectorXi& tetMap) {
     ScalarArrayEigen tempData;
@@ -513,6 +550,21 @@ ScalarArrayEigen device_to_vis_data_tet_section(const std::any &selectedData, in
 }
 
 static std::string exec_path;
+static std::string expressionHelpInfoConst("Define equation by:"
+                                           "\nalgebraic operators: + - / *"
+                                           "\nvector [v₁v₂v₃]ᵀ: Vector(v₁,v₂,v₃)"
+                                           "\ntensor [v₁v₂v₃]ᵀ[v₁v₂v₃]: Tensor(v₁,v₂,v₃)"
+                                           "\nstandard math functions: exp(), sin(), ..."
+                                           "\nconditional expressions: (f>f₀), ..."
+                                           "\ntime & space coordinates: t");
+static std::string expressionHelpInfo;
+
+// Make the GPU's context current on the calling thread.
+// Needed before driver-API calls (NVRTC module load / kernel launch) in a new thread.
+static void bindGpuToThisThread() {
+    cudaSetDevice(0);
+    cudaFree(0);   // forces the context to be created and made current
+}
 
 #ifdef __linux__
 // When started from the AppImage, register a menu entry + icon for the current user
@@ -576,6 +628,12 @@ static void integrateAppImage() {
 #endif
 
 int main(int argc, char** argv) {
+    int nDevices = 0;
+    if (cudaGetDeviceCount(&nDevices) != cudaSuccess || nDevices == 0) {
+        std::cerr << "No NVIDIA GPU or driver found. Check that 'nvidia-smi' lists your GPU." << std::endl;
+        return 1;
+    }
+
 #ifdef __linux__
     integrateAppImage();
 #endif
@@ -588,12 +646,12 @@ int main(int argc, char** argv) {
             enDiff[i] = INFINITY;
 
         projectFileName = std::string(argv[1]);
-        std::cout<<"reading project from "<<projectFileName<<std::endl;
+        std::cout<<"reading project : "<<projectFileName<<std::endl;
         readSetting(projectFileName);
 
         if (inputGeom == Arbitrary) {
             if (inputMeshFileName.compare(inputMeshFileName.length() - 4, inputMeshFileName.length(), ".vtk") == 0) {
-                std::cout<<"loading mesh from "<<inputMeshFileName<<std::endl;
+                std::cout<<"loading mesh : "<<inputMeshFileName<<std::endl;
                 if (mesh.init_from_file(inputMeshFileName)>0)
                     init();
                 else
@@ -645,6 +703,7 @@ int main(int argc, char** argv) {
     mStartTime = std::chrono::system_clock::now();
 
     auto nogui = [] {
+        bindGpuToThisThread();
         layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds) - 1).cast<double>().transpose();
         if (compile()) {
             paramChanged = false;
@@ -686,13 +745,13 @@ int main(int argc, char** argv) {
             shutDown = !run;
 
             if ((std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - mStartTime).count()>1000.0) || shutDown) {
-                float avgSTD[2] = {INFINITY, INFINITY};
-                getAverageAndSTD(avgSTD, enDiff, averageInterval);
-                float energySTD = avgSTD[1];
+                float avgSD[2] = {INFINITY, INFINITY};
+                getAverageAndSD(avgSD, enDiff, averageInterval);
+                float kinEnergy = avgSD[1];
 
                 std::cout<<"time "<<globalTime<<
                            " , dt ( " <<timeFactor<<" * "<< maxDt <<" )" <<
-                           " , iter "<<simIter<<", total energy std "<<energySTD<<", fps "<< FPS <<std::endl;
+                           " , iter "<<simIter<<", energy difference "<<kinEnergy<<", fps "<< FPS <<std::endl;
                 mStartTime = std::chrono::system_clock::now();
             }
 
@@ -701,30 +760,11 @@ int main(int argc, char** argv) {
                     recover_from_snapshot();
                 }
 
-                // thrust::host_vector<Vector> tempPos(data.pos);
-                // Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
-                // Eigen::MatrixXf visPosA(visPos.cast<float>());
-                // ScalarArrayEigen visR,visG,visB;
-                // computeNodalColor(visR,visG,visB);
-                // Eigen::MatrixXd nodalColor(mesh.boundaryNodeIds.size(),3);
-                // nodalColor.col(0) = visR(mesh.boundaryNodeIds).cast<double>();
-                // nodalColor.col(1) = visG(mesh.boundaryNodeIds).cast<double>();
-                // nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
-                // writePLY(output,
-                //         visPosA(mesh.boundaryNodeIds,Eigen::placeholders::all).cast<double>(),
-                //         nodalColor,
-                //         mesh.tri_mapped.matrix(),
-                //         "growth "+std::to_string(growthProgress)+
-                //         " iterations "+std::to_string(simiter)+
-                //         " timeFactor "+std::to_string(timeFactor)+
-                //         " kinetic/total energy "+std::to_string(enDiffAvg)+
-                //         " fps "+std::to_string(FPS));
-                // fs::permissions(output,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-                // std::cout<<"\t# "<<output<<" is saved." <<std::endl;
-
                 if (saveVTK) {
-                    std::string fname = outputFileName;
-                    fname.replace(fname.end()-4,fname.end(),".vtk");
+                    _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
+                    cudaDeviceSynchronize();
+
+                    std::string fname = outputFileName + ".vtk";
                     mesh.save_binary(fname, data.tet, data.pos, dataToSave);
                     fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
                     std::cout<<"\t# "<<fname<<" is saved." <<std::endl;
@@ -734,6 +774,7 @@ int main(int argc, char** argv) {
     };
 
     auto draw_mesh = [] {
+        bindGpuToThisThread();
         VideoWriter *videoWriter = nullptr;
         igl::opengl::glfw::Viewer viewer;
 
@@ -921,26 +962,39 @@ int main(int argc, char** argv) {
             vd_lege->set_visible(visibleData > 0, vc_lege->id);
 
             if (basisChanged) {
-                basisChanged = false;
+                expressionHelpInfo = expressionHelpInfoConst;
+                if (gP.grCoordType==CylindricalY)
+                    expressionHelpInfo = expressionHelpInfo+", R, Y, Theta";
+                if (gP.grCoordType==CylindricalZ)
+                    expressionHelpInfo = expressionHelpInfo+", R, Theta, Z";
+                else if (gP.grCoordType==Spherical || gP.grCoordType==Toroidal)
+                    expressionHelpInfo = expressionHelpInfo+", R, Theta, Phi";
+                else if (gP.grCoordType==ConeAdapted)
+                    expressionHelpInfo = expressionHelpInfo+", N, S, Theta";
+                else
+                    expressionHelpInfo = expressionHelpInfo+", X, Y, Z";
+
                 drawAxis(*vd_axis, gP.grCoordType);
+                basisChanged = false;
             }
 
             Eigen::SparseMatrix<Float> BC;
             Eigen::SparseMatrix<double> BC2;
             Eigen::VectorXi J,J2, boundaryTetIds;
 
-            setNewMeshToViewer = setNewMeshToViewer || (renderNewData && meshVisState>0);
+            setNewMeshToViewer = setNewMeshToViewer || (renderNewData && visMode>0);
             if (setNewMeshToViewer) {
                 setNewMeshToViewer = false;
                 vd_mesh->clear();
                 vd_mesh2->clear();
+                vd_mesh->set_face_based(visMode == 2 && crinkleClip);
                 if (mesh.pos.rows()>0) {
                     thrust::host_vector<Vector> tempPos(data.pos);
                     Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
-                    if (meshVisState == 0) {
+                    if (visMode == 0) {
                         vd_mesh->set_mesh(visPos.cast<double>(), mesh.tri);
                         layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds) - 1 ).cast<double>().transpose();
-                    } else if (meshVisState == 1) {
+                    } else if (visMode == 1) {
                         igl::marching_tets(visPos.cast<double>().matrix(),
                                            mesh.tet.matrix(),
                                            visPos.col(sliceDir).cast<double>().matrix(),
@@ -954,7 +1008,7 @@ int main(int argc, char** argv) {
                         layerFaceColors.resize(J.rows(), 4);
                         if (J.rows() > 0)
                             layerFaceColors = layersColorEigen(Eigen::placeholders::all, mesh.layer(J) - 1 ).cast<double>().transpose();
-                    } else if (meshVisState == 2 && !crinkleClip) {
+                    } else if (visMode == 2 && !crinkleClip) {
                         igl::marching_tets(visPos.cast<double>().matrix(),
                                            mesh.tet.matrix(),
                                            visPos.col(sliceDir).cast<double>().matrix() * (inverseClip?(-1.0):(1.0)),
@@ -981,7 +1035,7 @@ int main(int argc, char** argv) {
                         if (J2.rows() > 0)
                             layerFaceColors2 = layersColorEigen(Eigen::placeholders::all, mesh.layer(mesh.boundaryTetIds(J2)) - 1 ).cast<double>().transpose();
 
-                    } else if (meshVisState == 2 && crinkleClip) {
+                    } else if (visMode == 2 && crinkleClip) {
                         Eigen::VectorXi selectedTetIds;
                         VectorArrayEigen tetCenter = (visPos(mesh.tet.col(0),Eigen::placeholders::all)
                                                       + visPos(mesh.tet.col(1),Eigen::placeholders::all)
@@ -1021,12 +1075,13 @@ int main(int argc, char** argv) {
                     vd_mesh->clear_edges();
                     vd_mesh2->clear_edges();
 
-                    if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
+                    if (visibleData > 0 ||
+                        (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; }))) {
                         _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
                         cudaDeviceSynchronize();
                     }
 
-                    if (meshVisState == 0) {
+                    if (visMode == 0) {
                         thrust::host_vector<Vector> tempPos(data.pos);
                         Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
 
@@ -1049,7 +1104,7 @@ int main(int argc, char** argv) {
                                     vd_mesh->add_edges(triCenter-sFacor*tempVector.cast<double>(),triCenter+sFacor*tempVector.cast<double>(),color);
                                 }
                         }
-                    } else if (meshVisState == 1) {
+                    } else if (visMode == 1) {
                         if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
                             triCenter = (sliceVertex(sliceFace.col(0), Eigen::placeholders::all)
                                 + sliceVertex(sliceFace.col(1), Eigen::placeholders::all)
@@ -1064,7 +1119,7 @@ int main(int argc, char** argv) {
                                 }
                         }
                         tempData = device_to_vis_data_tet_section(selectedData, selectedDataComp, J, BC);
-                    } else if (meshVisState == 2 && !crinkleClip) {
+                    } else if (visMode == 2 && !crinkleClip) {
                         if (std::any_of(showRank1Tensors, showRank1Tensors+rank1TensorsNames.size(), [](bool v){ return v; })) {
                             triCenter = (sliceVertex(sliceFace.col(0), Eigen::placeholders::all)
                                 + sliceVertex(sliceFace.col(1), Eigen::placeholders::all)
@@ -1092,7 +1147,7 @@ int main(int argc, char** argv) {
                         vd_mesh2->F_uv.resize(0,0);
                         tempData = device_to_vis_data_tet_section(selectedData, selectedDataComp, J, BC);
                         tempData2 = device_to_vis_data_tet_section(selectedData, selectedDataComp, mesh.boundaryTetIds(J2), BC2.cast<Float>());
-                    } else if (meshVisState == 2 && crinkleClip) {
+                    } else if (visMode == 2 && crinkleClip) {
                         tempData = device_to_vis_data_tet_mesh(selectedData, selectedDataComp, boundaryTetIds);
                     }
 
@@ -1104,7 +1159,7 @@ int main(int argc, char** argv) {
                             vd_mesh2->set_colors(layerFaceColors2);
                         }
                     } else {
-                        if (meshVisState == 2 && tempData.rows() > 0 && tempData2.rows() > 0) {
+                        if (visMode == 2 && tempData.rows() > 0 && tempData2.rows() > 0) {
                             int N1 = tempData.rows();
                             int N2 = tempData2.rows();
                             ScalarArrayEigen tempData3(N1+N2);
@@ -1132,28 +1187,28 @@ int main(int argc, char** argv) {
                 }
 
                 if ((frames + 1) * sUpdate < simIter) {
-                    // if (savePLY) {
-                    //     char fname[16];
-                    //     snprintf(fname, 16, "_%04d.ply", frames);
-                    //     ScalarArrayEigen visR, visG, visB;
-                    //     computeNodalColor(visR, visG, visB);
-                    //     Eigen::MatrixXd nodalColor(mesh.boundaryNodeIds.size(), 3);
-                    //     nodalColor.col(0) = visR(mesh.boundaryNodeIds).cast<double>();
-                    //     nodalColor.col(1) = visG(mesh.boundaryNodeIds).cast<double>();
-                    //     nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
-                    //     std::string tempOutput = output;
-                    //     tempOutput.replace(tempOutput.end()-4,tempOutput.end(),fname);
-                    //     writePLY(tempOutput, vd_mesh->V(mesh.boundaryNodeIds, Eigen::placeholders::all), nodalColor, mesh.tri_mapped.matrix());
-                    //     fs::permissions(tempOutput, fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-                    // }
-                    if (saveVTK) {
-                        char fname[16];
-                        snprintf(fname, 16, "_%04d.vtk", frames);
-                        std::string tempOutput = outputFileName;
-                        tempOutput.replace(tempOutput.end()-4,tempOutput.end(),fname);
-                        mesh.save_binary(tempOutput, data.tet, data.pos, dataToSave);
-                        fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-                        std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
+                    if (!isSimDiverged()) {
+                        if (savePLY) {
+                            std::ostringstream ss;
+                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
+                            std::string tempOutput = ss.str();
+                            thrust::host_vector<Vector> tempPos(data.pos);
+                            Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
+                            Eigen::MatrixXf visPosA(visPos.cast<float>());
+                            writePLY(tempOutput,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
+                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
+                        }
+                        if (saveVTK) {
+                            _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
+                            cudaDeviceSynchronize();
+                            std::ostringstream ss;
+                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
+                            std::string tempOutput = ss.str();
+                            mesh.save_binary(tempOutput, data.tet, data.pos, dataToSave);
+                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
+                        }
                     }
                     frames++;
                 }
@@ -1165,33 +1220,21 @@ int main(int argc, char** argv) {
                     glfwGetFramebufferSize(viewer.window, &gWWidth, &gWHeight);
                     gWWidth = (gWWidth / 2) * 2;
                     gWHeight = (gWHeight / 2) * 2;
-                    videoWriter = new VideoWriter(("output_"+std::to_string(videoCounter++)+".mp4"), gWWidth, gWHeight, 30);
-                    videoWriter->init();
+                    videoWriter = new VideoWriter((outputFileName+"_"+std::to_string(videoCounter++)+".mp4"), gWWidth, gWHeight, 30);
+                    if (!videoWriter->init())
+                        videoWriter = nullptr;
                 }
-                // int width, height;
-                // glfwGetFramebufferSize(viewer.window, &width, &height);
-                // if ((R.rows()!=gWWidth) || (R.cols()!=gWHeight)) {
-                //     R.resize(gWWidth,gWHeight);
-                //     G.resize(gWWidth,gWHeight);
-                //     B.resize(gWWidth,gWHeight);
-                //     A.resize(gWWidth,gWHeight);
-                // }
-                char fname[16];
-                // snprintf(fname, 16, "_%04d.png", frames);
-                // vc_mesh->draw_buffer(*vd_mesh, false, R, G, B, A);
-                // std::string tempOutput = outputFileName;
-                // tempOutput.replace(tempOutput.end()-4,tempOutput.end(),fname);
-                // igl::stb::write_image(tempOutput, R, G, B, A);
-                // fs::permissions(tempOutput, fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-
-                int fb_w = 0, fb_h = 0;
-                glfwGetFramebufferSize(viewer.window, &fb_w, &fb_h);
-                fb_w = (fb_w / 2) * 2;
-                fb_h = (fb_h / 2) * 2;
-                std::vector<uint8_t> buffer(fb_w * fb_h * 4);
-                glReadPixels(0, 0, fb_w, fb_h, GL_RGBA, GL_UNSIGNED_BYTE, &buffer[0]);
-                buffer.resize(gWWidth * gWHeight * 4);
-                videoWriter->addFrame(buffer.data());
+                if (videoWriter != nullptr) {
+                    char fname[16];
+                    int fb_w = 0, fb_h = 0;
+                    glfwGetFramebufferSize(viewer.window, &fb_w, &fb_h);
+                    fb_w = (fb_w / 2) * 2;
+                    fb_h = (fb_h / 2) * 2;
+                    std::vector<uint8_t> buffer(fb_w * fb_h * 4);
+                    glReadPixels(0, 0, fb_w, fb_h, GL_RGBA, GL_UNSIGNED_BYTE, &buffer[0]);
+                    buffer.resize(gWWidth * gWHeight * 4);
+                    videoWriter->addFrame(buffer.data());
+                }
             } else if (videoWriter != nullptr) {
                 videoWriter->close();
                 delete videoWriter;
@@ -1212,13 +1255,17 @@ int main(int argc, char** argv) {
     };
 
     auto fem_iterate = [] {
+        bindGpuToThisThread();
+        using clk = std::chrono::steady_clock;
+        auto   fpsStart = clk::now();
+        size_t fpsIters = 0;                // iterations since fpsStart (independent of simIter / rollbacks)
 
-        auto start = std::chrono::steady_clock::now();
-        auto end = std::chrono::steady_clock::now();
         while (!shutDown) {
             if (!run) {
                 std::unique_lock<std::mutex> lck(mtx);
                 runSim.wait(lck);
+                fpsStart = clk::now();      // don't count paused / setup time
+                fpsIters = 0;
             } else {
 
                 simulate();
@@ -1227,15 +1274,18 @@ int main(int argc, char** argv) {
                 enDiff[simIter % averageInterval] = thrust::reduce(data.potEnergy.begin(), data.potEnergy.end())
                 / thrust::reduce(data.tetVol.begin(), data.tetVol.end());
 
+                if (simIter % (averageInterval/10) == 0)
+                    simDiverged = isSimDiverged();
+
                 if (simIter % averageInterval == 0) {
                     simDiverged = isSimDiverged();
                     if (!simDiverged) {
                         save_to_snapshot();
                     }
 
-                    float avgSTD[2] = {INFINITY, INFINITY};
-                    getAverageAndSTD(avgSTD, enDiff, averageInterval);
-                    kinEnergy = avgSTD[1];
+                    float avgSD[2] = {INFINITY, INFINITY};
+                    getAverageAndSD(avgSD, enDiff, averageInterval);
+                    kinEnergy = avgSD[1];
                 }
 
                 if (simDiverged) {
@@ -1264,25 +1314,28 @@ int main(int argc, char** argv) {
                 }
 
                 simIter++;
-                if (simIter%sUpdate == 0) {
-                    renderNewData = true;
-                    FPS = 1e3 * static_cast<double>(simIter - iterCounter) /
-                          static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>
-                                  (std::chrono::steady_clock::now() - start).count());
-                    iterCounter = simIter;
-                    cudaDeviceSynchronize();
-                    start = std::chrono::steady_clock::now();
+                fpsIters++;
+
+                // Iterations per second, averaged over at least 0.5 s.
+                // simulate() ends with cudaDeviceSynchronize(), so the GPU work is included.
+                const double sec = std::chrono::duration<double>(clk::now() - fpsStart).count();
+                if (sec >= 0.5) {
+                    FPS = fpsIters / sec;
+                    fpsIters = 0;
+                    fpsStart = clk::now();
                 }
+
+                if (simIter % sUpdate == 0)
+                    renderNewData = true;
 
                 if ((savePLY || saveVTK) &&
                     ((runMode==1) && (std::sin(globalTime/saveTime * M_PI) * std::sin((globalTime-dt)/saveTime * M_PI)<=0.0)
-                    || shutDown))
+                    || shutDown)) {
                     if (!isSimDiverged()) {
-                        char tempStr[50];
                         if (savePLY) {
-                            std::string tempOutput = outputFileName;
-                            std::sprintf(tempStr,"_%04d.ply",frames++);
-                            tempOutput.replace(tempOutput.end()-4,tempOutput.end(),tempStr);
+                            std::ostringstream ss;
+                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
+                            std::string tempOutput = ss.str();
                             thrust::host_vector<Vector> tempPos(data.pos);
                             Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                             Eigen::MatrixXf visPosA(visPos.cast<float>());
@@ -1291,19 +1344,25 @@ int main(int argc, char** argv) {
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                         if (saveVTK) {
-                            std::string tempOutput = outputFileName;
-                            std::sprintf(tempStr,"_%04d.vtk",frames++);
-                            tempOutput.replace(tempOutput.end()-4,tempOutput.end(),tempStr);
+                            _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
+                            cudaDeviceSynchronize();
+
+                            std::ostringstream ss;
+                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
+                            std::string tempOutput = ss.str();
                             mesh.save_binary(tempOutput, data.tet, data.pos, dataToSave);
                             fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                     }
+                    frames++;
+                }
             }
         }
     };
 
     auto draw_menu = [] {
+        bindGpuToThisThread();
         bool lowTimeFactorFlag = false;
         bool maxIterFlag = false;
 
@@ -1368,15 +1427,28 @@ int main(int argc, char** argv) {
         ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
         // static const ImWchar extra_ranges[] = { 0x1D00, 0x1D7F, 0x2070, 0x209F, 0 };
-        static const ImWchar extra_ranges[] = {
-        0x0020, 0x00FF,   // Basic Latin + Latin-1
-        0x0370, 0x03FF,   // Greek
-        0x1D00, 0x1D7F,   // Superscripts
-        0x2070, 0x209F,   // Subscripts
-        0
-        };
-        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, extra_ranges);
+        // static const ImWchar extra_ranges[] = {
+        // 0x0020, 0x00FF,   // Basic Latin + Latin-1
+        // 0x0370, 0x03FF,   // Greek
+        // 0x1D00, 0x1D7F,   // Superscripts
+        // 0x2070, 0x209F,   // Subscripts
+        // 0
+        // };
+        // io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20, nullptr, extra_ranges);
+        // io.Fonts->Build();
+
+        static const ImWchar baseRanges[] = { 0x0020, 0x00FF, 0x0370, 0x03FF, 0 };
+        static const ImWchar subRanges[]  = { 0x1D00, 0x1D7F, 0x2070, 0x209F, 0x2C60, 0x2C7F, 0 };
+
+        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20.0f, nullptr, baseRanges);
+
+        ImFontConfig cfg;
+        cfg.MergeMode = true;                      // adds glyphs to the previous font
+        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/DejaVuSansMono.ttf")).c_str(), 20.0f, &cfg, subRanges);
+
         io.Fonts->Build();
+
+        SDL_Cursor* waitCursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_WAIT);   // or SDL_SYSTEM_CURSOR_WAITARROW
 
         SDL_Event event;
 
@@ -1409,7 +1481,7 @@ int main(int argc, char** argv) {
             float wW = ImGui::GetContentRegionAvail().x;
             float wP = ImGui::GetStyle().FramePadding.x;
 
-            if (run) IMGUI_DISABLE_WIDGET
+            ImGui::BeginDisabled(run);
 
             if (ImGui::Button("Load project", ImVec2((wW - wP) * 0.5f, 0))) {
                 std::string fname = igl::file_dialog_open();
@@ -1439,10 +1511,10 @@ int main(int argc, char** argv) {
                 }
             }
 
-            if (run) IMGUI_ENABLE_WIDGET
+            ImGui::EndDisabled();
 
             if (ImGui::CollapsingHeader("Generate mesh")) {
-                if (run) IMGUI_DISABLE_WIDGET
+                ImGui::BeginDisabled(run);
                 if (ImGui::TreeNode("Presets")) {
                     std::vector<std::tuple<std::string, std::string, std::string>> presets = {
                         {"1. Elastic box with tangential growth",         "../examples/box_growth.txt",                   "Elastic box with tangential growth"},
@@ -1767,27 +1839,27 @@ int main(int argc, char** argv) {
 
                 basisChanged = basisChanged || modelChanged;
 
-                if (!modelChanged) IMGUI_DISABLE_WIDGET
+                ImGui::BeginDisabled(!modelChanged);
 
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(0, 255, 0)));
                 applyChanges = ImGui::Button("Apply Changes", ImVec2(-1, 0)) || applyChanges;
                 ImGui::PopStyleColor();
-                if (!modelChanged) {
-                    ImGui::PopItemFlag();
-                    ImGui::PopStyleVar();
-                }
+                ImGui::EndDisabled();
                 if (applyChanges) {
-                    ImGui::ProgressBar(1.0);   // empty overlay
+                    ImGui::ProgressBar(0.75);   // empty overlay
                     // Draw left‑aligned text on top of the bar
                     ImGui::SameLine();
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() - wW); // move cursor back
-                    ImGui::TextUnformatted("Generating mesh ... please wait");
+                    if (inputGeom == Arbitrary)
+                        ImGui::TextUnformatted("Loading mesh ... please wait");
+                    else
+                        ImGui::TextUnformatted("Generating mesh ... please wait");
                     compileFlag = true;
                 }
-                if (run) IMGUI_ENABLE_WIDGET
+                ImGui::EndDisabled();
             }
 
-            if (run) IMGUI_DISABLE_WIDGET
+            ImGui::BeginDisabled(run);
 
             if (inputGeom == Box) {
                 nLayers = boxDims.nLayers;
@@ -1809,10 +1881,9 @@ int main(int argc, char** argv) {
                 gP.RTorus = torusDims.R;
             }
 
-            if (run) IMGUI_ENABLE_WIDGET
+            ImGui::EndDisabled();
 
-            if (modelChanged) IMGUI_DISABLE_WIDGET
-
+            ImGui::BeginDisabled(modelChanged);
 
             if (ImGui::CollapsingHeader("Coordinate basis")) {
                 ImGui::Columns(2, "Basis Columns", false);
@@ -1873,12 +1944,12 @@ int main(int argc, char** argv) {
                 ImGui::Columns(1);
             }
 
-            selectedLayer = min(selectedLayer,nLayers);
+            selectedLayer = std::clamp(selectedLayer, 0, std::max(nLayers - 1, 0));
 //            if (ImGui::CollapsingHeader("Select layer")) {
             if (ImGui::CollapsingHeader("Select layer",ImGuiTreeNodeFlags_Leaf)) {
 
                 for (int i = 0; i < nLayers; i++) {
-                    ImGui::RadioButton(("Layer " + std::to_string(i)).c_str(), &selectedLayer, i);
+                    ImGui::RadioButton(("Layer " + std::to_string(i+1)).c_str(), &selectedLayer, i);
                     ImGui::SameLine();
                     colorChanged = ImGui::ColorEdit4((" ####LC##" + std::to_string(i)).c_str(), layersColorEigen.col(i).data(),
                              ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_PickerHueWheel) || colorChanged;
@@ -1895,32 +1966,33 @@ int main(int argc, char** argv) {
             DelayedTooltip("Enable rigid behavior for the selected layer.");
 
 
-            if (gP.isRigidLayer[selectedLayer]) IMGUI_DISABLE_WIDGET
+            ImGui::BeginDisabled(gP.isRigidLayer[selectedLayer]);
 
             if (ImGui::CollapsingHeader("Isotropic property functions")) {
                 ImGui::SameLine();
-                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer)).c_str());
+                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer + 1)).c_str());
 
                 ImGui::BeginTable("##table_Isotropic", 2);
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-                ImGuiParamReadRow("Young's modulus ", gP.E[selectedLayer], gP.useMeshDef_E, mesh.E.rows()==mesh.ntet, paramChanged);
+
+                ImGuiParamReadRow("Young's modulus ", gP.E[selectedLayer], gP.useMeshDef_E, mesh.E.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 DelayedTooltip("Controls the layer's stiffness.\nHigher Young's modulus makes the layer stiffer.");
                 ImGui::Separator();
-                ImGuiParamReadRow("Poisson's ratio ", gP.nu[selectedLayer], gP.useMeshDef_nu, mesh.nu.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Poisson's ratio ", gP.nu[selectedLayer], gP.useMeshDef_nu, mesh.nu.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 DelayedTooltip("Controls axial-lateral deformation coupling & compressibility.\nHigher values mean less compressible (range: -1 to 0.5).");
                 ImGui::Separator();
-                ImGuiParamReadRow("Viscosity ", gP.visc[selectedLayer], gP.useMeshDef_viscosity, mesh.visc.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Viscosity ", gP.visc[selectedLayer], gP.useMeshDef_viscosity, mesh.visc.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 DelayedTooltip("Controls resistance to shear.\nHigher viscosity means slower flow.");
                 ImGui::Separator();
-                ImGuiParamReadRow("Plasticity coeff. ", gP.plasticity[selectedLayer], gP.useMeshDef_plasticity, mesh.plasticity.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow("Plasticity coeff. ", gP.plasticity[selectedLayer], gP.useMeshDef_plasticity, mesh.plasticity.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 DelayedTooltip("Controls yielding and permanent deformation.\nRanges from 0 (fully-elastic) to 1 (fully-plastic).");
                 ImGui::EndTable();
             }
             if (ImGui::CollapsingHeader("Fibers & Tensile force functions")) {
                 ImGui::SameLine();
-                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer)).c_str());
+                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer + 1)).c_str());
                 ImGui::BeginTable("##table_anisotropy", 2);
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -1936,28 +2008,28 @@ int main(int argc, char** argv) {
                 // ImGui::EndTable();
 
                 if (nFibers>0) {
-                    ImGuiParamReadRow("Fiber k1", gP.k1[selectedLayer], gP.useMeshDef_k1, mesh.k1.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow("Fiber k1", gP.k1[selectedLayer], gP.useMeshDef_k1, mesh.k1.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
                     DelayedTooltip("Sets baseline fiber stiffness.\nHigher values make fibers resist stretch more strongly");
-                    ImGuiParamReadRow("Fiber k2", gP.k2[selectedLayer], gP.useMeshDef_k2, mesh.k2.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow("Fiber k2", gP.k2[selectedLayer], gP.useMeshDef_k2, mesh.k2.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
                     DelayedTooltip("Controls exponential stiffening of fiber under stretch.");
                     for (int i = 0; i < nFibers; i++) {
                         if (i==0)
-                            ImGuiParamReadRow("Fiber 1", gP.fiber1_Ref[selectedLayer], gP.useMeshDef_fiber1_Ref, mesh.fiberTetra1.rows()==mesh.ntet, paramChanged);
-                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 1.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+                            ImGuiParamReadRow("Fiber 1", gP.fiber1_Ref[selectedLayer], gP.useMeshDef_fiber1_Ref, mesh.fiberTetra1.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 1.");
                         if (i==1)
-                            ImGuiParamReadRow("Fiber 2", gP.fiber2_Ref[selectedLayer], gP.useMeshDef_fiber2_Ref, mesh.fiberTetra2.rows()==mesh.ntet, paramChanged);
-                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 2.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+                            ImGuiParamReadRow("Fiber 2", gP.fiber2_Ref[selectedLayer], gP.useMeshDef_fiber2_Ref, mesh.fiberTetra2.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 2.");
                         if (i==2)
-                            ImGuiParamReadRow("Fiber 3", gP.fiber3_Ref[selectedLayer], gP.useMeshDef_fiber3_Ref, mesh.fiberTetra3.rows()==mesh.ntet, paramChanged);
-                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 3.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+                            ImGuiParamReadRow("Fiber 3", gP.fiber3_Ref[selectedLayer], gP.useMeshDef_fiber3_Ref, mesh.fiberTetra3.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 3.");
                         if (i==3)
-                            ImGuiParamReadRow("Fiber 4", gP.fiber4_Ref[selectedLayer], gP.useMeshDef_fiber4_Ref, mesh.fiberTetra4.rows()==mesh.ntet, paramChanged);
-                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 4.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+                            ImGuiParamReadRow("Fiber 4", gP.fiber4_Ref[selectedLayer], gP.useMeshDef_fiber4_Ref, mesh.fiberTetra4.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
+                            DelayedTooltip("Defines anisotropic reinforcement generated by passive fiber 4.");
                     }
                 }
                 ImGui::Separator();
-                ImGuiParamReadRow("Active tensile force", gP.actin_Ref[selectedLayer], gP.useMeshDef_actin_Ref, mesh.actinTetra.rows()==mesh.ntet, paramChanged);
-                DelayedTooltip("Sets the contractile force generated by active filaments.\nTensor(a,b,c) = [a b c]ᵀ[a b c].");
+                ImGuiParamReadRow("Active tensile force", gP.actin_Ref[selectedLayer], gP.useMeshDef_actin_Ref, mesh.actinTetra.rows()==mesh.ntet, paramChanged,expressionHelpInfo);
+                DelayedTooltip("Sets the contractile force generated by active filaments.");
 
                 ImGui::EndTable();
             }
@@ -1993,22 +2065,22 @@ int main(int argc, char** argv) {
 
             if (ImGui::CollapsingHeader("Growth rate functions")) {
                 ImGui::SameLine();
-                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer)).c_str());
+                ImGui::Text("%s", (" of layer " + std::to_string(selectedLayer + 1)).c_str());
 
                 ImGui::BeginTable("##growth_function_table", 2);
                 ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-                ImGuiParamReadRow(dir1, gP.grRate1_Ref[selectedLayer], gP.useMeshDef_grRate1_Ref, mesh.grRate1.rows()==mesh.ntet, paramChanged);
-                ImGuiParamReadRow(dir2, gP.grRate2_Ref[selectedLayer], gP.useMeshDef_grRate2_Ref, mesh.grRate2.rows()==mesh.ntet, paramChanged);
+                ImGuiParamReadRow(dir1, gP.grRate1_Ref[selectedLayer], gP.useMeshDef_grRate1_Ref, mesh.grRate1.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
+                ImGuiParamReadRow(dir2, gP.grRate2_Ref[selectedLayer], gP.useMeshDef_grRate2_Ref, mesh.grRate2.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 if (gP.grCoordType!=0)
-                    ImGuiParamReadRow(dir3, gP.grRate3_Ref[selectedLayer], gP.useMeshDef_grRate3_Ref, mesh.grRate3.rows()==mesh.ntet, paramChanged);
+                    ImGuiParamReadRow(dir3, gP.grRate3_Ref[selectedLayer], gP.useMeshDef_grRate3_Ref, mesh.grRate3.rows()==mesh.ntet, paramChanged, expressionHelpInfo);
                 else
                     gP.grRate3_Ref[selectedLayer] = gP.grRate2_Ref[selectedLayer];
                 ImGui::EndTable();
             }
 
-            if (gP.isRigidLayer[selectedLayer]) IMGUI_ENABLE_WIDGET
+            ImGui::EndDisabled();
 
             if (ImGui::CollapsingHeader("Boundary conditions")) {
                 const ImGuiTableFlags tableFlags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
@@ -2028,7 +2100,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Inner"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2039,7 +2111,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Outer"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2051,7 +2123,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Outer"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("1", gP.extLoadMaxAxis0 , bcChanged);
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("1", gP.extLoadMaxAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2061,31 +2133,31 @@ int main(int argc, char** argv) {
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Min Z"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("2", gP.extLoadMinAxis1 , bcChanged);
+                    bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis2, 0) || bcChanged;
+                    if (gP.bcTypeMinAxis2 == 0) ImGuiParamRead("2", gP.extLoadMinAxis2 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis2) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
 
-                    bcChanged = ImGui::RadioButton("##zm fixed",   &gP.bcTypeMinAxis1, 1) || bcChanged; ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zm tangent", &gP.bcTypeMinAxis1, 2) || bcChanged;
+                    bcChanged = ImGui::RadioButton("##zm fixed",   &gP.bcTypeMinAxis2, 1) || bcChanged; ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zm tangent", &gP.bcTypeMinAxis2, 2) || bcChanged;
 
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Max Z"); ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("3", gP.extLoadMaxAxis1 , bcChanged);
+                    bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis2, 0) || bcChanged;
+                    if (gP.bcTypeMaxAxis2 == 0) ImGuiParamRead("3", gP.extLoadMaxAxis2 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis2) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
 
-                    bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis1, 1) || bcChanged; ImGui::TableNextColumn();
-                    bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis1, 2) || bcChanged;
+                    bcChanged = ImGui::RadioButton("##zp fixed",   &gP.bcTypeMaxAxis2, 1) || bcChanged; ImGui::TableNextColumn();
+                    bcChanged = ImGui::RadioButton("##zp tangent", &gP.bcTypeMaxAxis2, 2) || bcChanged;
 
                 } else if (gP.grCoordType == CoordinateSystem::CylindricalY  || gP.grCoordType == CoordinateSystem::ConeAdapted) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Inner"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2096,7 +2168,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Outer"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2107,7 +2179,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Min Y"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged);
+                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2118,7 +2190,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Max Y"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged);
+                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2130,7 +2202,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Min X"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xm free",    &gP.bcTypeMinAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged);
+                    if (gP.bcTypeMinAxis0 == 0) ImGuiParamRead("1", gP.extLoadMinAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2141,7 +2213,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Max X"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##xp free",    &gP.bcTypeMaxAxis0, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged);
+                    if (gP.bcTypeMaxAxis0 == 0) ImGuiParamRead("2", gP.extLoadMaxAxis0 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis0 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis0) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2151,7 +2223,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Min Y"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##ym free",    &gP.bcTypeMinAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged);
+                    if (gP.bcTypeMinAxis1 == 0) ImGuiParamRead("3", gP.extLoadMinAxis1 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis1) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2161,7 +2233,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Max Y"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##yp free",    &gP.bcTypeMaxAxis1, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged);
+                    if (gP.bcTypeMaxAxis1 == 0) ImGuiParamRead("4", gP.extLoadMaxAxis1 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis1 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis1) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2171,7 +2243,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Min Z"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zm free",    &gP.bcTypeMinAxis2, 0) || bcChanged;
-                    if (gP.bcTypeMinAxis2 == 0) ImGuiParamRead("5", gP.extLoadMinAxis2 , bcChanged);
+                    if (gP.bcTypeMinAxis2 == 0) ImGuiParamRead("5", gP.extLoadMinAxis2 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMinAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMinAxis2) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2181,7 +2253,7 @@ int main(int argc, char** argv) {
                     ImGui::TableNextRow(); ImGui::TableNextColumn();
                     ImGui::Text("Max Z"); ImGui::TableNextColumn();
                     bcChanged = ImGui::RadioButton("##zp free",    &gP.bcTypeMaxAxis2, 0) || bcChanged;
-                    if (gP.bcTypeMaxAxis2 == 0) ImGuiParamRead("6", gP.extLoadMaxAxis2 , bcChanged);
+                    if (gP.bcTypeMaxAxis2 == 0) ImGuiParamRead("6", gP.extLoadMaxAxis2 , bcChanged, expressionHelpInfo);
                     ImGui::SameLine();
                     ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, (gP.bcTypeMaxAxis2 == 0) && !hasNonZeroVectorString(gP.extLoadMaxAxis2) ? 1.0f : 0.0f), "free");
                     ImGui::TableNextColumn();
@@ -2218,19 +2290,19 @@ int main(int argc, char** argv) {
 
             // Draw options
             if (ImGui::CollapsingHeader("Draw Options")) {
-                setNewMeshToViewer = ImGui::RadioButton("Surface", &meshVisState, 0) || setNewMeshToViewer;
+                setNewMeshToViewer = ImGui::RadioButton("Surface", &visMode, 0) || setNewMeshToViewer;
                 renderNewData |= setNewMeshToViewer;
                 ImGui::SameLine();
-                renderNewData = ImGui::RadioButton("Section", &meshVisState, 1) || renderNewData;
+                renderNewData = ImGui::RadioButton("Section", &visMode, 1) || renderNewData;
                 ImGui::SameLine();
-                renderNewData = ImGui::RadioButton("Clip", &meshVisState, 2) || renderNewData;
-                if (meshVisState == 2) {
+                renderNewData = ImGui::RadioButton("Clip", &visMode, 2) || renderNewData;
+                if (visMode == 2) {
                     renderNewData = ImGui::Checkbox("Crinkle", &crinkleClip) || renderNewData;
                     ImGui::SameLine();
                     renderNewData = ImGui::Checkbox("Inverse", &inverseClip) || renderNewData;
                 }
 
-                if (meshVisState > 0) {
+                if (visMode > 0) {
                     renderNewData = ImGui::RadioButton("X plane", &sliceDir, 0) || renderNewData;
                     ImGui::SameLine();
                     renderNewData = ImGui::InputFloat("##X", &sliceMag[0], 0.01f, 1.0f, "%.3f") || renderNewData;
@@ -2352,16 +2424,16 @@ int main(int argc, char** argv) {
             run = run && !paramChanged;
 
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(0, 255, 0)));
-            if (!paramChanged) IMGUI_DISABLE_WIDGET
+            ImGui::BeginDisabled(!paramChanged);
             compileFlag = ImGui::Button("Compile", ImVec2(-1, 0)) || compileFlag;
-            if (!paramChanged) IMGUI_ENABLE_WIDGET
+            ImGui::EndDisabled();
             ImGui::PopStyleColor();
 
             if (!run) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(0, 255, 0)));
-                if (paramChanged) IMGUI_DISABLE_WIDGET
+                ImGui::BeginDisabled(paramChanged);
                 run = ImGui::Button("Run simulation", ImVec2(-1, 0));
-                if (paramChanged) IMGUI_ENABLE_WIDGET
+                ImGui::EndDisabled();
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && paramChanged) {
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(ImColor(255, 255, 255)));
                     ImGui::SetTooltip("Push ""Compile"" button first !");
@@ -2393,18 +2465,10 @@ int main(int argc, char** argv) {
                 ImGui::PopStyleColor();
             }
 
-            if (!lowTimeFactorFlag)
-                lowTimeFactorFlag = ImGuiMessage(timeFactor<1e-4, "Warning !", "Time-step became too small.\nYou may need to change the model parameters.\nPress \"Reset\" button before running again.");
-            if ((!maxIterFlag) && !(timeFactor<1e-4))
-                maxIterFlag = ImGuiMessage((simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval)),
-                    "Stop condition is reached !", "You may need too change the max iteration or energy limit.\nCheck \"Simulation Parameters\".");
-
             if (ImGui::Button("Save Project", ImVec2(-1, 0))) {
                 std::string fname = igl::file_dialog_save();
                 if (fname.length() != 0) {
-                    fname = fname +
-                            ((fname.compare(fname.length() - 4, fname.length(), ".txt") == 0) ? "" : ".txt");
-                    //mesh.save_surface(fname, thrust::host_vector<Vector>(data.pos));
+                    fname = fname + ((fname.compare(fname.length() - 4, fname.length(), ".txt") == 0) ? "" : ".txt");
                     writeSetting(fname);
                 }
             }
@@ -2424,44 +2488,16 @@ int main(int argc, char** argv) {
             ImGui::SameLine(0, wP);
 
             if (ImGui::Button("Save PLY", ImVec2((wW - wP) * 0.5f, 0))) {
-                // std::string fname = igl::file_dialog_save();
-                // if (fname.length() != 0) {
-                //     fname = fname +
-                //             ((fname.compare(fname.length() - 4, fname.length(), ".ply") == 0) ? "" : ".ply");
-                //
-                //     thrust::host_vector<Vector> tempPos(data.pos);
-                //     Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
-                //     Eigen::MatrixXf visPosA(visPos.cast<float>());
-                //     ScalarArrayEigen visR,visG,visB;
-                //     computeNodalColor(visR,visG,visB);
-                //     Eigen::MatrixXd nodalColor(mesh.boundaryNodeIds.size(),3);
-                //     nodalColor.col(0) = visR(mesh.boundaryNodeIds).cast<double>();
-                //     nodalColor.col(1) = visG(mesh.boundaryNodeIds).cast<double>();
-                //     nodalColor.col(2) = visB(mesh.boundaryNodeIds).cast<double>();
-                //
-                //     writePLY(fname,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>(), nodalColor,mesh.tri_mapped.matrix());
-                //     fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-                // }
+                std::string fname = igl::file_dialog_save();
+                if (fname.length() != 0) {
+                    fname = fname + ((fname.compare(fname.length() - 4, fname.length(), ".ply") == 0) ? "" : ".ply");
+                    thrust::host_vector<Vector> tempPos(data.pos);
+                    Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
+                    Eigen::MatrixXf visPosA(visPos.cast<float>());
+                    writePLY(fname,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
+                    fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                }
             }
-
-            // if (ImGui::Button("Save PLY", ImVec2((wW - wP) * 0.5f, 0))) {
-            //     if ((R.rows()!=gWWidth) || (R.cols()!=gWHeight)) {
-            //         R.resize(gWWidth,gWHeight);
-            //         G.resize(gWWidth,gWHeight);
-            //         B.resize(gWWidth,gWHeight);
-            //         A.resize(gWWidth,gWHeight);
-            //     }
-            //     char fname[16];
-            //     // snprintf(fname, 16, "_%04d.png", frames);
-            //     vc_mesh->draw_buffer(*vd_mesh, false, R, G, B, A);
-            //     // std::string tempOutput = outputFileName;
-            //     // tempOutput.replace(tempOutput.end()-4,tempOutput.end(),fname);
-            //     // igl::stb::write_image(tempOutput, R, G, B, A);
-            //     // fs::permissions(tempOutput, fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
-            //     uint8_t* rgb = packRGB(R, G, B);
-            //     videoWriter.addFrame(rgb);
-            //     delete[] rgb;
-            // }
 
             ImGui::Text("Save frames :");
             ImGui::SameLine();
@@ -2486,10 +2522,16 @@ int main(int argc, char** argv) {
                 ImGui::Text("Iterations per seconds : %.3f", isfinite(FPS) ? FPS : 0.0);
             }
 
-            if (modelChanged) {
-                ImGui::PopItemFlag();
-                ImGui::PopStyleVar();
-            }
+            ImGui::EndDisabled();   // matches ImGui::BeginDisabled(modelChanged)
+
+            // Modal messages are drawn outside every disabled region: a modal opened while
+            // disabled has an unclickable "Close" button and blocks the whole interface.
+            if (!lowTimeFactorFlag)
+                lowTimeFactorFlag = ImGuiMessage(timeFactor<1e-4, "Warning !", "Time-step became too small.\nYou may need to change the model parameters.\nPress \"Reset\" button before running again.");
+            // Not while a new model waits for "Apply": simIter/kinEnergy still belong to the old one.
+            if ((!maxIterFlag) && !modelChanged && !(timeFactor<1e-4))
+                maxIterFlag = ImGuiMessage((simIter>=maxIter || (kinEnergy<kinEnergyTol && simIter > averageInterval)),
+                    "Stop condition is reached !", "You may need too change the max iteration or energy limit.\nCheck \"Simulation Parameters\".");
 
             ImGui::End();
 
@@ -2500,8 +2542,10 @@ int main(int argc, char** argv) {
             glClear(GL_COLOR_BUFFER_BIT);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             SDL_GL_SwapWindow(window);
-
+            SDL_Cursor* prevCursor = nullptr;
             if (applyChanges) {
+                prevCursor = SDL_GetCursor();          // whatever the ImGui backend currently has set
+                SDL_SetCursor(waitCursor);
                 if (inputGeom == Arbitrary) {
                     if (inputMeshFileName.compare(inputMeshFileName.length() - 4, inputMeshFileName.length(), ".vtk") == 0) {
                         if (mesh.init_from_file(inputMeshFileName)>0)
@@ -2567,11 +2611,11 @@ int main(int argc, char** argv) {
                 bcChanged = true;
                 paramChanged = true;
                 simIter = 0;
-                iterCounter = 0;
                 FPS = 0.0f;
             }
 
             if (reloadMeshFile) {
+                SDL_SetCursor(waitCursor);
                 reloadMeshFile = false;
                 run = false;
                 if (inputGeom == Arbitrary) {
@@ -2592,7 +2636,6 @@ int main(int argc, char** argv) {
                 bcChanged = true;
                 paramChanged = true;
                 simIter = 0;
-                iterCounter = 0;
                 FPS = 0.0f;
             }
 
@@ -2628,6 +2671,7 @@ int main(int argc, char** argv) {
             }
 
             if (compileFlag) {
+                SDL_SetCursor(waitCursor);
                 if (compile()) {
                     paramChanged = false;
                 }
@@ -2645,7 +2689,6 @@ int main(int argc, char** argv) {
                 colorChanged = true;
                 bcChanged = true;
                 simIter = 0;
-                iterCounter = 0;
                 videoCounter = 0;
                 FPS = 0.0f;
             }
@@ -2655,22 +2698,13 @@ int main(int argc, char** argv) {
                 renderNewData = true;
                 colorChanged = false;
             }
+
+            if (prevCursor) SDL_SetCursor(prevCursor);
+
             applyChanges = false;
 
             if (bcChanged) {
                 bcChanged = false;
-                // _LAUNCH(mesh.nver, 256, compute_bids) (dataPtr, bcTol*spacing, mesh.nver);
-                // cudaDeviceSynchronize();
-                //
-                // ScalarArrayEigen distance = getSignedDist(mesh.pos,mesh.pos,mesh.tri);
-                // ScalarArrayDev distanceDev(mesh.nver,0.0);
-                // thrust::copy(reinterpret_cast<Float*>(distance.data()), reinterpret_cast<Float*>(distance.data())+mesh.nver, distanceDev.begin());
-                // _LAUNCH(mesh.ntet, 256, compute_normal_from_dist) (dataPtr, thrust::raw_pointer_cast(distanceDev.data()), mesh.ntet);
-                // cudaDeviceSynchronize();
-                // // _LAUNCH(mesh.ntet, 256, compute_orthogonal_basis) (dataPtr, mesh.ntet);
-                // _LAUNCH_NVRTC(mesh.ntet, 256, compute_orthogonal_basis_nvrtc.kernel, {&dataPtr, &mesh.nver});
-                // cudaDeviceSynchronize();
-                // renderNewData = true;
             }
         }
         // Cleanup
@@ -2679,6 +2713,7 @@ int main(int argc, char** argv) {
         ImGui::DestroyContext();
 
         SDL_GL_DeleteContext(gl_context);
+        SDL_FreeCursor(waitCursor);
         SDL_DestroyWindow(window);
         SDL_Quit();
         return;
@@ -2709,7 +2744,14 @@ int main(int argc, char** argv) {
         delete nogui_thread;
     }
     delete fem_iterate_thread;
+
+    // Free all GPU memory while the CUDA runtime is still alive. Global objects ('data' and
+    // any other global thrust vectors) are destroyed after main() returns, when CUDA may
+    // already be shut down: their cudaFree then throws inside a destructor -> std::terminate.
+    cudaDeviceSynchronize();
+    data.release();
     delete dataPtr;
+    dataPtr = nullptr;
 
     return 0;
 }

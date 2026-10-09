@@ -70,10 +70,12 @@ __global__ void compute_for_vis_nvrtc(DeviceDataPtr *data, Float t, int ntet) {
         Float Z = tetCenterRef[2];
 
         /* default *///Float R;
-
         /* default *///Float Phi;
-
         /* default *///Float Theta;
+        /* default *///Float hapex;
+        /* default *///Float N;
+        /* default *///Float S;
+
         //////////////////////////////////////////////
         /* default */Float E = 1.0;
         /* default */Float nu = 0.4;

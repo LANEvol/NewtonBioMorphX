@@ -27,8 +27,8 @@ cmake_minimum_required(VERSION 3.21)
 #   it back with -DCMAKE_CUDA_ARCHITECTURES="70-real;75-real;...".
 # ---------------------------------------------------------
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-#    set(CMAKE_CUDA_ARCHITECTURES "75-real;80-real;86-real;89-real;90-real;90-virtual")
-    set(CMAKE_CUDA_ARCHITECTURES "89-real")
+    set(CMAKE_CUDA_ARCHITECTURES "75-real;80-real;86-real;89-real;90-real;90-virtual")
+#    set(CMAKE_CUDA_ARCHITECTURES "80-real;89-real")
 endif()
 
 project(NewtonBioMorphX VERSION 1.0.0 LANGUAGES CXX CUDA)
@@ -135,6 +135,8 @@ install(DIRECTORY share/
         DESTINATION share)
 install(DIRECTORY examples/
         DESTINATION examples)
+install(DIRECTORY docs/
+        DESTINATION docs)
 install(DIRECTORY "${CUDAToolkit_TARGET_DIR}/include/"
         DESTINATION include/cuda)
 

@@ -49,14 +49,14 @@ namespace LagSol {
     typedef Eigen::Array<Float,Eigen::Dynamic,3,Eigen::RowMajor> VectorArrayEigen;
     typedef Eigen::Array<Float,Eigen::Dynamic,9,Eigen::RowMajor> TensorArrayEigen;
 
-
-
     struct is_not_a_finite_Vector {
         Float limit;
         __host__ __device__ is_not_a_finite_Vector() : limit(INFINITY) {}
-        __host__ __device__ is_not_a_finite_Vector(const Float& _lim) : limit(_lim) {}
+        __host__ __device__ explicit is_not_a_finite_Vector(const Float& lim) : limit(lim) {}
         __host__ __device__ bool operator()(const Vector& a) const {
-            return !(isfinite(a[0]) && isfinite(a.data[1]) && isfinite(a[2]) && a.mag()<limit);
+            if (!(isfinite(a[0]) && isfinite(a[1]) && isfinite(a[2]))) return true;
+            if (isinf(limit)) return false;          // finite-only check
+            return !(a.mag() < limit);               // also catches overflow in mag()
         }
     };
 

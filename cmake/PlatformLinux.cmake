@@ -167,8 +167,37 @@ macro(nbmx_platform_package)
             endif()
         endif()
 
+        # patchelf: gives every bundled .so the search path $ORIGIN (its own folder).
+        # Needed because the exe's RUNPATH only applies to the libraries the exe loads
+        # directly, not to the libraries THOSE load (e.g. VTK -> libvtkCommonExecutionModel).
+        # Use one from PATH, otherwise download the static build once into the build folder.
+        find_program(PATCHELF_EXECUTABLE patchelf)
+        if(NOT PATCHELF_EXECUTABLE)
+            set(_pe_dir "${CMAKE_BINARY_DIR}/tools/patchelf")
+            if(NOT EXISTS "${_pe_dir}/bin/patchelf")
+                message(STATUS "Downloading patchelf ...")
+                file(DOWNLOAD
+                        "https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-${NBMX_ARCH}.tar.gz"
+                        "${_pe_dir}/patchelf.tar.gz" STATUS _dl_status)
+                list(GET _dl_status 0 _dl_code)
+                if(_dl_code EQUAL 0)
+                    file(ARCHIVE_EXTRACT INPUT "${_pe_dir}/patchelf.tar.gz" DESTINATION "${_pe_dir}")
+                else()
+                    message(WARNING "patchelf download failed (${_dl_status}). "
+                            "Install it (apt install patchelf) or pass -DPATCHELF_EXECUTABLE=...")
+                endif()
+                file(REMOVE "${_pe_dir}/patchelf.tar.gz")
+            endif()
+            if(EXISTS "${_pe_dir}/bin/patchelf")
+                set(PATCHELF_EXECUTABLE "${_pe_dir}/bin/patchelf" CACHE FILEPATH "patchelf" FORCE)
+            endif()
+        endif()
+
         if(NOT APPIMAGETOOL_EXECUTABLE)
             message(WARNING "No appimagetool -> install will not create an AppImage")
+        elseif(NOT PATCHELF_EXECUTABLE)
+            message(WARNING "No patchelf -> install will not create an AppImage "
+                    "(it would fail on machines without the same libraries installed)")
         elseif(NOT EXISTS "${APP_ICON_PNG}")
             message(WARNING "AppImage needs an icon: ${APP_ICON_PNG} not found -> no AppImage")
         else()
@@ -208,6 +237,24 @@ file(COPY "@_ai@/@PROJECT_NAME@.desktop" DESTINATION "${_appdir}")
 file(COPY "@_ai@/@PROJECT_NAME@.desktop" DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications")
 file(COPY_FILE "@APP_ICON_PNG@" "${_appdir}/@PROJECT_NAME@.png")
 file(COPY_FILE "@APP_ICON_PNG@" "${_appdir}/.DirIcon")
+
+# Bundled libraries find each other in their own folder (usr/lib).
+# Without this, a library loaded by another bundled library (not by the exe itself)
+# is only searched on the user's system -> "cannot open shared object file".
+file(GLOB _libs LIST_DIRECTORIES false "${CMAKE_INSTALL_PREFIX}/lib/*.so*")
+set(_patched 0)
+foreach(_lib IN LISTS _libs)
+    if(NOT IS_SYMLINK "${_lib}")
+        execute_process(COMMAND "@PATCHELF_EXECUTABLE@" --set-rpath "$ORIGIN" "${_lib}"
+                        RESULT_VARIABLE _pr ERROR_VARIABLE _pe)
+        if(_pr EQUAL 0)
+            math(EXPR _patched "${_patched} + 1")
+        else()
+            message(WARNING "patchelf failed on ${_lib}: ${_pe}")
+        endif()
+    endif()
+endforeach()
+message(STATUS "Set RUNPATH \$ORIGIN on ${_patched} bundled libraries")
 
 # Show the RUNPATH so you can check that $ORIGIN/../lib is set
 execute_process(COMMAND readelf -d "${CMAKE_INSTALL_PREFIX}/bin/@PROJECT_NAME@"

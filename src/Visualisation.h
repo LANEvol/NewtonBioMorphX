@@ -69,7 +69,7 @@ namespace LagSol {
         SwsContext* sws = nullptr;
         AVFrame* frame = nullptr;
 
-        void init();
+        bool init();
         void cleanup();
     };
 

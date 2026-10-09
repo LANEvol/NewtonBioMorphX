@@ -636,6 +636,7 @@ namespace LagSol {
         in_data[0] = rgb + (height - 1) * in_linesize[0];
         in_linesize[0] = -in_linesize[0];
 
+        av_frame_make_writable(frame);
         // Convert RGB → YUV420P
         sws_scale(sws, in_data, in_linesize, 0, height,
                   frame->data, frame->linesize);
@@ -668,62 +669,70 @@ namespace LagSol {
         cleanup();
     }
 
-    int64_t pts = 0;
-
-//private:
-    std::string filename;
-    int width, height, fps;
-
-    AVFormatContext* fmt = nullptr;
-    AVCodecContext* ctx = nullptr;
-    AVCodec* codec = nullptr;
-    AVStream* stream = nullptr;
-    SwsContext* sws = nullptr;
-    AVFrame* frame = nullptr;
-
     // -----------------------------
     // Initialization
     // -----------------------------
-    void VideoWriter::init() {
-        avformat_alloc_output_context2(&fmt, nullptr, nullptr, filename.c_str());
+    bool VideoWriter::init() {
+        int ret = avformat_alloc_output_context2(&fmt, nullptr, nullptr, filename.c_str());
+        if (!fmt) { std::cerr << "VideoWriter: no muxer for " << filename << "\n"; return false; }
 
         codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+        if (!codec) { std::cerr << "VideoWriter: no H.264 encoder (FFmpeg built without x264)\n"; return false; }
+
         stream = avformat_new_stream(fmt, codec);
+        if (!stream) return false;
 
         ctx = avcodec_alloc_context3(codec);
-        ctx->width = width;
-        ctx->height = height;
-        ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+        ctx->width     = width  & ~1;                 // H.264 + YUV420P need even dimensions
+        ctx->height    = height & ~1;
+        ctx->pix_fmt   = AV_PIX_FMT_YUV420P;
         ctx->time_base = AVRational{1, fps};
         ctx->framerate = AVRational{fps, 1};
-        ctx->gop_size = 12;
+        ctx->gop_size  = 12;
         ctx->max_b_frames = 2;
+        if (fmt->oformat->flags & AVFMT_GLOBALHEADER)
+            ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
-        // Stream time base MUST match codec time base
         stream->time_base = ctx->time_base;
 
         av_opt_set(ctx->priv_data, "preset", "slow", 0);
         av_opt_set(ctx->priv_data, "crf", "18", 0);
-        avcodec_open2(ctx, codec, nullptr);
+
+        char err[AV_ERROR_MAX_STRING_SIZE];
+        ret = avcodec_open2(ctx, codec, nullptr);
+        if (ret < 0) {
+            av_strerror(ret, err, sizeof err);
+            std::cerr << "VideoWriter: avcodec_open2 failed: " << err << "\n";
+            return false;
+        }
         avcodec_parameters_from_context(stream->codecpar, ctx);
 
-        if (!(fmt->oformat->flags & AVFMT_NOFILE))
-            avio_open(&fmt->pb, filename.c_str(), AVIO_FLAG_WRITE);
+        if (!(fmt->oformat->flags & AVFMT_NOFILE)) {
+            ret = avio_open(&fmt->pb, filename.c_str(), AVIO_FLAG_WRITE);
+            if (ret < 0) {
+                av_strerror(ret, err, sizeof err);
+                std::cerr << "VideoWriter: cannot open " << filename << ": " << err << "\n";
+                return false;
+            }
+        }
 
-        avformat_write_header(fmt, nullptr);
+        ret = avformat_write_header(fmt, nullptr);
+        if (ret < 0) {
+            av_strerror(ret, err, sizeof err);
+            std::cerr << "VideoWriter: write_header failed: " << err << "\n";
+            return false;
+        }
 
-        sws = sws_getContext(
-            width, height, AV_PIX_FMT_RGBA,
-            width, height, AV_PIX_FMT_YUV420P,
-            SWS_BILINEAR, nullptr, nullptr, nullptr);
-
+        sws = sws_getContext(width, height, AV_PIX_FMT_RGBA,
+                             ctx->width, ctx->height, AV_PIX_FMT_YUV420P,
+                             SWS_BILINEAR, nullptr, nullptr, nullptr);
         frame = av_frame_alloc();
         frame->format = ctx->pix_fmt;
-        frame->width = width;
-        frame->height = height;
-        av_frame_get_buffer(frame, 32);
+        frame->width  = ctx->width;
+        frame->height = ctx->height;
+        if (av_frame_get_buffer(frame, 32) < 0) return false;
+        return true;
     }
-
     // -----------------------------
     // Cleanup + flush
     // -----------------------------

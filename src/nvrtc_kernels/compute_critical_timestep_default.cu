@@ -46,10 +46,11 @@ __global__ void compute_critical_timestep_nvrtc(DeviceDataPtr *data, Float t, in
         Float Z = Xcenter[2];
 
         /* default *///Float R;
-
         /* default *///Float Phi;
-
         /* default *///Float Theta;
+        /* default *///Float hapex;
+        /* default *///Float N;
+        /* default *///Float S;
 
         //////////////////////////////////////////////
         /* default */Float E = 1.0;

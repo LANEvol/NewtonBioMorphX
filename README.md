@@ -1,192 +1,89 @@
-# NewtonBioMorphX:
-NewtonBioMorphX is a GPU‑accelerated finite‑element framework for simulating hyperelastic, plastic,
-and viscous tissues with growth, anisotropic passive fibers, and active stresses. It integrates a 
-broad set of functionalities into a single platform with mesh generation, material property
-assignment, boundary‑conditions, visualization tools, and efficient GPU solvers, enabling researchers
-to model diverse morphogenetic processes through an accessible graphical interface.
 
----
+<div align="center">
+<img src="docs/images/nbmx_banner_sm.png" alt="NewtonBioMorphX banner" width="800">
+</div>
 
-## Operating system, Hardware and Software Dependencies
+# NewtonBioMorphX
 
-The recommended environment is:
+**A GPU-accelerated framework for mechanical morphogenesis**
 
-- Ubuntu 22.04 or WSL2 (Windows Subsystem for Linux)
-- NVIDIA CUDA 12.4
-- NVIDIA GPU with CUDA support
+NewtonBioMorphX is an open-source application for simulating the tissue-scale mechanics of morphogenesis. Directly from a graphical interface, you can generate geometries, define material properties, prescribe growth, add anisotropic fiber reinforcement and active forces, visualize results in real time, and export simulations for further analysis, without editing or recompiling any code.
 
-The project is tested successfully for CUDA architecture:
-```
-75, 89, 90
-``` 
-This corresponds to compute capabilities 7.5, 8.9, and 9.0.
-- 7.5 is used by NVIDIA Turing GPUs (RTX 20‑series, GTX 16‑series).
-- 8.9 is used by NVIDIA Ada Lovelace GPUs (RTX 40‑series and 50-series).
-- 9.0 is used by NVIDIA Hopper GPUs (H100 and related data‑center GPUs).
+It is designed for biologists and physicists alike, and is also a powerful teaching tool for exploring the principles of mechanical patterning hands-on.
 
-⚠️ Running the application on pre‑7.0 CUDA architectures may cause significant performance degradation.
+<div align="center">
+<img src="docs/images/main_interface.png" alt="NewtonBioMorphX user interface" width="900">
+<p><em>The control panel (left) and the real-time rendering window (right).</em></p>
+</div>
 
-This application relies on the following libraries:
+## Features
 
-- `GCC` https://gcc.gnu.org/
-- `CUDA Toolkit` https://developer.nvidia.com/cuda/toolkit
-- `libigl` https://libigl.github.io/
-- `Eigen` https://eigen.tuxfamily.org
-- `Dear ImGui` https://github.com/ocornut/imgui
-- `zenity` https://gitlab.gnome.org/GNOME/zenity 
-- `OpenGL/GLX` https://www.opengl.org/ 
-- `GLFW` https://www.glfw.org/
-- `Xlib` https://www.x.org/
-- `SDL2` https://www.libsdl.org/
-- `Gmsh` https://gmsh.info/
-- `Freetype` https://freetype.org/
-- `VTK` https://vtk.org/
-- `FFmpeg` https://www.ffmpeg.org/
-- `GMP` https://gmplib.org/
-- `MPFR` https://www.mpfr.org/
-- `Python 3` https://www.python.org
-- `CMake` https://cmake.org/ 
-- `pkgconf` https://github.com/pkgconf/pkgconf
----
-## 🐳 Running the Application with Docker
+- **Geometry:** built-in multilayer mesh generator (box, disk, tube, cone, sphere, torus), or import your own VTK mesh
+- **Materials:** elasticity, viscosity and plasticity, defined per layer, with optional rigid layers
+- **Growth:** isotropic or anisotropic growth rates, varying in space and time
+- **Anisotropy:** up to four passive fiber families and active tensile forces per layer
+- **Coordinate systems:** normal/tangent, Cartesian, cylindrical, cone-adapted, spherical and toroidal
+- **Boundary conditions:** free, traction, fixed and tangential slide
+- **Analytical expressions** for every parameter, compiled at runtime into GPU kernels
+- **Robust solver:** contact handling, F-bar formulation for nearly incompressible materials, automatic recovery from numerical instabilities
+- **Visualization:** surface, section and clip views, scalar fields, fiber and growth directions, mesh-quality histogram
+- **Export:** VTK, PLY and MP4 movies
 
-Running the application using Docker is the recommended method for users who prefer a simplified setup or do not wish to manage dependencies manually.
+## Examples
 
----
+Twelve ready-to-run presets are included. A few of them:
 
-### 📦 Installing the requirements
+<table>
+<tr>
+<td align="center"><img src="docs/images/preset_1.png" width="250"><br><sub>Elastic box with tangential growth</sub></td>
+<td align="center"><img src="docs/images/preset_5.png" width="250"><br><sub>Tube with growth and collagen fibers</sub></td>
+<td align="center"><img src="docs/images/preset_8.png" width="250"><br><sub>Two-layer sphere with orthogonal growth</sub></td>
+<td align="center"><img src="docs/images/preset_12.png" width="250"><br><sub>Elastic torus with fibers</sub></td>
+</tr>
+</table>
 
-#### Docker Installation
+See the [full list of presets](docs/User_Manual.md#5-preset-examples).
 
-Follow the official Docker documentation for installation instructions:
+## Download
 
-- **Docker Engine (Linux):**  
-  https://docs.docker.com/engine/install/
+Ready-to-use packages are available on the [Releases page](https://github.com/LANEvol/NewtonBioMorphX/releases):
 
-- **Docker Desktop (Windows):**  
-  https://docs.docker.com/desktop/windows/install/
+| Operating system | File | Description |
+|------------------|------|-------------|
+| Windows | `NewtonBioMorphX-<version>-win64.exe` | Installer (recommended) |
+| Windows | `NewtonBioMorphX-<version>-win64.zip` | Portable version, no installation required |
+| Linux | `NewtonBioMorphX-<version>-x86_64.AppImage` | Single-file executable, no installation required |
 
-#### Windows‑specific requirements
+**Requirements:** an NVIDIA GPU with an up-to-date driver, and 64-bit Windows 10/11 or Linux (e.g., Ubuntu 22.04 or newer). The CUDA Toolkit is **not** required to run the application.
 
-Windows users must ensure the following:
-
-- **WSL2 is installed and enabled**
-- **Docker Desktop is configured to use the WSL2 backend**
-
----
-
-### ▶️ Running the application
-
-After installing Docker, you can run the application by starting the container followed by the application name:
-```
-docker run --rm --gpus all \
-           -e DISPLAY=$DISPLAY \
-           -e NVIDIA_DRIVER_CAPABILITIES=all \
-           -v /tmp/.X11-unix:/tmp/.X11-unix \
-           -v "$PWD/:/workspace/" jahanbak/newtonbiomorphx:latest NewtonBioMorphX
-```
-For Windows users, the WSL terminal can be accessed by pressing the Windows key and typing `wsl`.
-The application can be run also in No-GUI / batch mode. For that purpose, first start the container in interactive mode:
-```
-docker run --rm -it \
-       --gpus all \
-       -v "$PWD/:/workspace/" jahanbak/newtonbiomorphx:latest
-```
-Then run the application by passing the project file path as an argument:
-```
-NewtonBioMorphX /usr/examples/sphere_growth.txt
-```
-
-⚠️ For GUI mode, you may need to allow the container to access your X11 display. To do so, run the following command in the terminal before starting the container:
-```
-xhost +local:docker
-```
-And after finishing, revoke the permission:
-```
-xhost -local:docker
-```
-
----
-
-## ⚙️ Building the Application with Docker (for Developers)
-
-The following instructions are for developers who wish to build the application from source.
-The provided Docker setup is based on NVIDIA CUDA Ubuntu images and is intended for GPU-enabled systems.
-Docker GPU support requires the **NVIDIA Container Toolkit**.
-
----
-
-### 1. Verify docker GPU support
-
-After installing Docker and NVIDIA Container Toolkit, test GPU access:
-```
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
-```
-If this prints your GPU information, Docker can access the GPU.
-
-### 2. Build the Docker image and run the container
-
-From the project root:
-```
-docker build -t newtonbiomorphx .
-```
-Run the container in interactive mode:
-```
-docker run --rm  -it \
-       --gpus all \
-       -v "$PWD/:/workspace/" newtonbiomorphx
-```
----
-### 3. Build the application
-Build the application using CMake:
-```
-cmake -S . \
-      -B cmake-build-release-docker_gpu \
-      -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build-release-docker_gpu -j
-```
-### 4. CUDA Architecture Note
-
-The project is configured for a specific CUDA architecture. If your GPU has a different compute capability, update the CUDA architecture before building.
-
-Common values:
-
-| GPU Generation | CUDA Architecture |
-|----------------|------------------:|
-| Volta          |                70 |
-| Turing         |                75 |
-| Ampere         |                86 |
-| Ada Lovelace   |                89 |
-| Hopper         |                90 |
-
-For example, for an RTX 30-series GPU, use:
-```
-set(CMAKE_CUDA_ARCHITECTURES "86")
-```
-
-After changing the architecture, rebuild from a clean build directory.
-If you want to run the application with a GUI, start the container with the required X11 and GPU settings:
+On Linux, make the AppImage executable, then launch it:
 
 ```
-docker run --rm -it \
-       --gpus all -e DISPLAY=$DISPLAY \
-       -e NVIDIA_DRIVER_CAPABILITIES=all \
-       -v /tmp/.X11-unix:/tmp/.X11-unix \ 
-       -v "$PWD/:/workspace/" newtonbiomorphx
+chmod +x NewtonBioMorphX-<version>-x86_64.AppImage
+./NewtonBioMorphX-<version>-x86_64.AppImage
 ```
 
----
+## Documentation
 
-## Contact
+📖 **[User Manual](docs/User_Manual.md)**: installation, interface, modeling workflow, expression syntax, simulation parameters, visualization, and FAQ.
 
-For questions or support, reach us at:
-- ebrahim.jahanbakhsh [at] unige [dot] ch
-- michel.milinkovitch [at] unige [dot] ch
+## Building from source
 
----
+NewtonBioMorphX is built with CMake (3.21 or newer) on Windows (Visual Studio 2022 + vcpkg) and on Linux (Docker). See [Compiling source code](docs/User_Manual.md#3-compiling-source-code) in the manual.
+
+## Citation
+
+If you use NewtonBioMorphX in your research, please cite:
+
+> Ebrahim Jahanbakhsh, Michel C. Milinkovitch, NewtonBioMorphX: a computational framework for simulating tissue-scale mechanics of morphogenesis, Computer Physics Communications (2026), https://doi.org/10.1016/j.cpc.2026.110452.
 
 ## License
 
-This project is distributed under the GNU General Public License v3.0 or later.
+NewtonBioMorphX is free software, released under the [GNU General Public License v3.0](LICENSE).
 
-See the `LICENSE` file for details.
+## Authors
+
+Ebrahim Jahanbakhsh & Michel C. Milinkovitch
+[Laboratory of Artificial and Natural Evolution (LANE)](https://www.lanevol.org/), University of Geneva
+
+Project website: https://www.lanevol.org/projects/NewtonBioMorphX

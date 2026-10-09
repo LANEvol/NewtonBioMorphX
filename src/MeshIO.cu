@@ -231,7 +231,7 @@ namespace LagSol {
     void copy_from_device_array_to_vtk_array(const thrust::device_vector<T> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<T> hostData(devData);
         constexpr int nComp = sizeof(T)/sizeof(Float);
-        vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
+        vtkArray->SetNumberOfComponents(nComp);
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
         for (vtkIdType i = 0; i < hostData.size(); ++i) {
@@ -245,7 +245,7 @@ namespace LagSol {
     void copy_from_device_array_to_vtk_array<Float>(const thrust::device_vector<Float> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<Float> hostData(devData);
         constexpr int nComp = 1;
-        vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
+        vtkArray->SetNumberOfComponents(nComp);
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
         for (vtkIdType i = 0; i < hostData.size(); ++i) {
@@ -258,7 +258,7 @@ namespace LagSol {
     void copy_from_device_array_to_vtk_array<int>(const thrust::device_vector<int> devData, vtkSmartPointer<vtkFloatArray>& vtkArray) {
         thrust::host_vector<Float> hostData(devData);
         constexpr int nComp = 1;
-        vtkArray->SetNumberOfComponents(nComp); // 3x3 tensor
+        vtkArray->SetNumberOfComponents(nComp);
         vtkArray->SetNumberOfTuples(hostData.size());
         float tuple[nComp];
         for (vtkIdType i = 0; i < hostData.size(); ++i) {
@@ -284,119 +284,149 @@ namespace LagSol {
     }
 
     void Mesh::extract_boundary_and_face_cell_pairs() {
-        if (layer.rows()==0) {
-            layer = Eigen::VectorXi(ntet);
-            layer.setZero();
+        // Local face -> local vertex table. Same convention as the original code:
+        // f0 = abc, f1 = acd, f2 = abd, f3 = bcd. The opposite vertex is 6 - sum.
+        static constexpr int LF[4][3] = {{0,1,2},{0,2,3},{0,1,3},{1,2,3}};
+
+        // ------------------------------------------------------------------
+        // 1. Layers: remap arbitrary tags to 1..nlay
+        // ------------------------------------------------------------------
+        if (layer.size() == 0) {
+            layer.setZero(ntet);
+        } else if (layer.size() != ntet) {
+            throw std::runtime_error("extract_boundary: layer has " + std::to_string(layer.size()) +
+                                     " entries but mesh has " + std::to_string(ntet) + " tets");
         }
 
-        std::vector<int> uniqueTags(layer.data(),layer.data()+layer.size());
+        std::vector<int> uniqueTags(layer.data(), layer.data() + ntet);
         std::sort(uniqueTags.begin(), uniqueTags.end());
-        auto last1 = std::unique(uniqueTags.begin(), uniqueTags.end());
-        uniqueTags.erase(last1,uniqueTags.end());
-        nlay = uniqueTags.size();
-        std::map<int,int> tagConv;
-        for (int i=0; i<nlay; i++)
-            tagConv[uniqueTags[i]] = i + 1;
-        for (int i=0; i<ntet; i++) {
-            layer(i) = tagConv[layer(i)];
+        uniqueTags.erase(std::unique(uniqueTags.begin(), uniqueTags.end()), uniqueTags.end());
+        nlay = static_cast<int>(uniqueTags.size());
+        if (nlay > MAX_NLAYERS)
+            throw std::runtime_error("extract_boundary: " + std::to_string(nlay) +
+                                     " layers exceeds MAX_NLAYERS = " + std::to_string(MAX_NLAYERS));
+        for (int i = 0; i < ntet; ++i)
+            layer(i) = static_cast<int>(std::lower_bound(uniqueTags.begin(), uniqueTags.end(), layer(i))
+                                        - uniqueTags.begin()) + 1;
+
+        // ------------------------------------------------------------------
+        // 2. Enumerate all 4*ntet tet faces with a sorted vertex key
+        // ------------------------------------------------------------------
+        struct FaceRec {
+            std::array<int,3> key;  // sorted vertex ids
+            int tet;
+            int local;              // local face index in 'tet'
+        };
+        std::vector<FaceRec> recs;
+        recs.reserve(4 * static_cast<std::size_t>(ntet));
+        for (int t = 0; t < ntet; ++t) {
+            for (int f = 0; f < 4; ++f) {
+                std::array<int,3> k = { tet(t, LF[f][0]), tet(t, LF[f][1]), tet(t, LF[f][2]) };
+                std::sort(k.begin(), k.end());
+                recs.push_back({k, t, f});
+            }
+        }
+        // Sort by key, then by tet: the lowest tet of each face comes first,
+        // which reproduces the original fac(i,0)/fac(i,1) semantics and ordering.
+        std::sort(recs.begin(), recs.end(), [](const FaceRec &a, const FaceRec &b) {
+            return a.key != b.key ? a.key < b.key : a.tet < b.tet;
+        });
+
+        // ------------------------------------------------------------------
+        // 3. Pair faces: 1 owner -> boundary, 2 owners -> interior
+        // ------------------------------------------------------------------
+        std::vector<std::array<int,3>> facList;   // (local face of cell0, cell0, cell1 or -1)
+        std::vector<std::size_t> bdryRec;         // index into recs for each boundary face
+        facList.reserve(recs.size() / 2 + recs.size() / 8);
+        int nNonManifold = 0, nDegenerate = 0;
+
+        for (std::size_t i = 0; i < recs.size();) {
+            std::size_t j = i + 1;
+            while (j < recs.size() && recs[j].key == recs[i].key) ++j;
+            const std::size_t n = j - i;
+
+            if (n == 1) {
+                facList.push_back({recs[i].local, recs[i].tet, -1});
+                bdryRec.push_back(i);
+            } else {
+                if (recs[i].tet == recs[i + 1].tet) ++nDegenerate;  // repeated vertex in a tet
+                if (n > 2) ++nNonManifold;                          // >2 tets share a face
+                facList.push_back({recs[i].local, recs[i].tet, recs[i + 1].tet});
+            }
+            i = j;
+        }
+        if (nNonManifold > 0)
+            std::cerr << "extract_boundary: warning, " << nNonManifold
+                      << " faces shared by more than two tets (non-manifold mesh)\n";
+        if (nDegenerate > 0)
+            std::cerr << "extract_boundary: warning, " << nDegenerate
+                      << " faces belong to degenerate tets (repeated vertices)\n";
+
+        // ------------------------------------------------------------------
+        // 4. Boundary triangles, owning tet, outward orientation
+        // ------------------------------------------------------------------
+        ntri = static_cast<int>(bdryRec.size());
+        tri.resize(ntri, 3);
+        boundaryTetIds.resize(ntri);
+        for (int k = 0; k < ntri; ++k) {
+            const FaceRec &r = recs[bdryRec[k]];
+            const int t = r.tet, f = r.local;
+            int a = tet(t, LF[f][0]);
+            int b = tet(t, LF[f][1]);
+            int c = tet(t, LF[f][2]);
+            const int d = tet(t, 6 - LF[f][0] - LF[f][1] - LF[f][2]);  // opposite vertex
+
+            const Eigen::Matrix<Float,3,1> pa = pos.row(a).matrix().transpose();
+            const Eigen::Matrix<Float,3,1> pb = pos.row(b).matrix().transpose();
+            const Eigen::Matrix<Float,3,1> pc = pos.row(c).matrix().transpose();
+            const Eigen::Matrix<Float,3,1> pd = pos.row(d).matrix().transpose();
+            if ((pb - pa).cross(pc - pa).dot(pd - pa) > Float(0))
+                std::swap(b, c);  // make the normal point away from the owning tet
+
+            tri(k, 0) = a; tri(k, 1) = b; tri(k, 2) = c;
+            boundaryTetIds(k) = t;
         }
 
-        //////////////////////////////////////////////
-        Eigen::Matrix<int, Eigen::Dynamic, 3> otri;
-        igl::boundary_facets(tet.matrix(),otri);
-        tri = otri.array();
-        ntri = tri.rows();
-        std::cout<<ntri<<std::endl;
-        /////////////////////////////////////////////
+        // ------------------------------------------------------------------
+        // 5. Boundary nodes (sorted) and local re-indexing
+        // ------------------------------------------------------------------
+        std::vector<char> isBdry(nver, 0);
+        for (int k = 0; k < ntri; ++k)
+            for (int m = 0; m < 3; ++m) isBdry[tri(k, m)] = 1;
 
-        boundaryNodeIds = std::vector<int>(tri.data(), tri.data() + tri.size());
-        std::sort(boundaryNodeIds.begin(), boundaryNodeIds.end());
-        auto last = std::unique(boundaryNodeIds.begin(), boundaryNodeIds.end());
-        boundaryNodeIds.erase(last, boundaryNodeIds.end());
-        nnbd = boundaryNodeIds.size();
-        std::map<int,int> bdryIdsMap;
-        for (int i=0;i<nnbd; i++)
-            bdryIdsMap.insert(std::make_pair(boundaryNodeIds[i],i));
-        tri_mapped.resize(ntri,3);
-        for (int i=0;i<ntri; i++) {
-            tri_mapped(i,0) = bdryIdsMap.find(tri(i,0))->second;
-            tri_mapped(i,1) = bdryIdsMap.find(tri(i,1))->second;
-            tri_mapped(i,2) = bdryIdsMap.find(tri(i,2))->second;
+        std::vector<int> globalToBdry(nver, -1);
+        boundaryNodeIds.clear();
+        for (int v = 0; v < nver; ++v) {
+            if (isBdry[v]) {
+                globalToBdry[v] = static_cast<int>(boundaryNodeIds.size());
+                boundaryNodeIds.push_back(v);
+            }
         }
+        nnbd = static_cast<int>(boundaryNodeIds.size());
+
+        tri_mapped.resize(ntri, 3);
+        for (int k = 0; k < ntri; ++k)
+            for (int m = 0; m < 3; ++m) tri_mapped(k, m) = globalToBdry[tri(k, m)];
+
         boundaryPos = pos(boundaryNodeIds, Eigen::placeholders::all);
 
-        std::vector<std::vector<int>> temp(nver);
-        boundaryTetIds.resize(ntri);
-//            for (int i=0; i<nver; i++)
-//                temp[i].reserve(50);
-        for (int i=0; i<ntet; i++) {
-            temp[tet(i,0)].push_back(i);
-            temp[tet(i,1)].push_back(i);
-            temp[tet(i,2)].push_back(i);
-            temp[tet(i,3)].push_back(i);
-        }
-        for (int i=0; i<ntri; i++) {
-            int tri0 = tri(i,0);
-            int tri1 = tri(i,1);
-            int tri2 = tri(i,2);
-            std::vector<int> v_intersection1,v_intersection2;
-            std::set_intersection(temp[tri0].begin(),temp[tri0].end(),
-                                  temp[tri1].begin(),temp[tri1].end(),
-                                  std::back_inserter(v_intersection1));
-            std::set_intersection(v_intersection1.begin(),v_intersection1.end(),
-                                  temp[tri2].begin(),temp[tri2].end(),
-                                  std::back_inserter(v_intersection2));
-            if (v_intersection2.size()==1) {
-                boundaryTetIds[i] = v_intersection2[0];
-            } else if (v_intersection2.size()>1) {
-                boundaryTetIds[i] = v_intersection2[0];
-            } else
-                std::cout<<" triangle " << i << " is not connected to any tetrahedron !"<<std::endl;
-        }
-        for (int i=0; i<ntri; i++) {
-            int l = layer(boundaryTetIds[i]) - 1;
-            boundaryTetIdsLayers[l].push_back(i);
-        }
+        // ------------------------------------------------------------------
+        // 6. Boundary triangles grouped by layer (cleared first: safe to call twice)
+        // ------------------------------------------------------------------
+        for (int l = 0; l < MAX_NLAYERS; ++l)
+            boundaryTetIdsLayers[l].clear();
+        for (int k = 0; k < ntri; ++k)
+            boundaryTetIdsLayers[layer(boundaryTetIds(k)) - 1].push_back(k);
 
-        std::map<std::set<int>, std::tuple<int,int,int>> face_cell_pairs;
-        for (int i=0; i<ntet; i++) {
-            int a = tet(i,0);
-            int b = tet(i,1);
-            int c = tet(i,2);
-            int d = tet(i,3);
-            auto f0 = std::set({a,b,c});
-            auto f1 = std::set({a,c,d});
-            auto f2 = std::set({a,b,d});
-            auto f3 = std::set({b,c,d});
-
-            if (auto iter = face_cell_pairs.find(f0); iter == face_cell_pairs.end())
-                face_cell_pairs.insert(std::make_pair(f0,std::make_tuple(0,i,-1)));
-            else
-                std::get<2>(iter->second) = i;
-
-            if (auto iter = face_cell_pairs.find(f1); iter == face_cell_pairs.end())
-                face_cell_pairs.insert(std::make_pair(f1,std::make_tuple(1,i,-1)));
-            else
-                std::get<2>(iter->second) = i;
-
-            if (auto iter = face_cell_pairs.find(f2); iter == face_cell_pairs.end())
-                face_cell_pairs.insert(std::make_pair(f2,std::make_tuple(2,i,-1)));
-            else
-                std::get<2>(iter->second) = i;
-
-            if (auto iter = face_cell_pairs.find(f3); iter == face_cell_pairs.end())
-                face_cell_pairs.insert(std::make_pair(f3,std::make_tuple(3,i,-1)));
-            else
-                std::get<2>(iter->second) = i;
-        }
-
-        nfac = face_cell_pairs.size();
-        fac.resize(nfac,3);
-        int i = 0;
-        for (auto iter=face_cell_pairs.begin(); iter != face_cell_pairs.end(); ++iter, ++i) {
-            fac(i,0) = std::get<0>(iter->second);
-            fac(i,1) = std::get<1>(iter->second);
-            fac(i,2) = std::get<2>(iter->second);
+        // ------------------------------------------------------------------
+        // 7. Face-cell pairs
+        // ------------------------------------------------------------------
+        nfac = static_cast<int>(facList.size());
+        fac.resize(nfac, 3);
+        for (int i = 0; i < nfac; ++i) {
+            fac(i, 0) = facList[i][0];
+            fac(i, 1) = facList[i][1];
+            fac(i, 2) = facList[i][2];
         }
     }
 
@@ -507,8 +537,10 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
+
 
         // -----------------------
         // 10. Extract nodes and build compact index
@@ -699,8 +731,10 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
+
 
         // -----------------------
         // 10. Extract nodes and build compact index
@@ -903,8 +937,11 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
+        gmsh::option::setNumber("Mesh.OptimizeNetgen", 0);
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
+
 
         // -----------------------
         // 10. Extract nodes and build compact index
@@ -1104,8 +1141,10 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
+
 
         // -----------------------
         // 10. Extract nodes and build compact index
@@ -1279,8 +1318,9 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
 
         // -----------------------
         // 10. Extract nodes and build compact index
@@ -1387,7 +1427,7 @@ namespace LagSol {
         return 1;
     }
 
-        int Mesh::init_from_multi_layer_box(double L, double W, const std::vector<double> &thicknesses, const std::vector<double> &meshSizes) {
+    int Mesh::init_from_multi_layer_box(double L, double W, const std::vector<double> &thicknesses, const std::vector<double> &meshSizes) {
         clear();
         Eigen::MatrixXd compactNodes;
         Eigen::MatrixXi compactElements;
@@ -1457,8 +1497,10 @@ namespace LagSol {
         // -----------------------
         // 9. Generate final 3D mesh
         // -----------------------
+        //gmsh::option::setNumber("Mesh.Algorithm3D", 10);   // HXT
+        gmsh::option::setNumber("General.NumThreads", 0);  // use all cores
         gmsh::model::mesh::generate(3);
-        gmsh::model::mesh::optimize("Netgen");
+        // gmsh::option::setNumber("Mesh.OptimizeNetgen", 0);
         // -----------------------
         // 10. Extract nodes and build compact index
         // -----------------------
@@ -1626,14 +1668,21 @@ namespace LagSol {
         int nCDataArray = data->GetCellData()->GetNumberOfArrays();
         int nFDataArray = data->GetFieldData()->GetNumberOfArrays();
 
-        std::cout<< "number PointData : "<<nPDataArray<<std::endl;
-        std::cout<< "number CellData : "<<nCDataArray<<std::endl;
-        std::cout<< "number FieldData : "<<nFDataArray<<std::endl;
-
-        // for (int i=0; i<data->GetPointData()->GetNumberOfArrays(); ++i) {
-        //     auto array = data->GetPointData()->GetAbstractArray(i);
-        //     std::cout << array->GetName() << std::endl;
-        // }
+        std::cout<< "# PointData: "<<nPDataArray<<std::endl;
+        for (int i=0; i<data->GetPointData()->GetNumberOfArrays(); ++i) {
+            auto array = data->GetPointData()->GetAbstractArray(i);
+            std::cout <<"\t"<<array->GetName()<< std::endl;
+        }
+        std::cout<< "# CellData: "<<nCDataArray<<std::endl;
+        for (int i=0; i<data->GetCellData()->GetNumberOfArrays(); ++i) {
+            auto array = data->GetCellData()->GetAbstractArray(i);
+            std::cout <<"\t"<<array->GetName()<< std::endl;
+        }
+        std::cout<< "# FieldData: "<<nFDataArray<<std::endl;
+        for (int i=0; i<data->GetFieldData()->GetNumberOfArrays(); ++i) {
+            auto array = data->GetFieldData()->GetAbstractArray(i);
+            std::cout <<"\t"<<array->GetName()<< std::endl;
+        }
 
         if (vtkDataArray* arr = data->GetPointData()->GetArray("X"); arr != nullptr)
             copy_from_vtk_to_eigen(arr, posRef);
@@ -1653,39 +1702,39 @@ namespace LagSol {
 
         if (vtkDataArray* arr = data->GetPointData()->GetArray("E"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, E);
-            E = E(tetraIds);
+            E = E(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("nu"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, nu);
-            nu = nu(tetraIds);
+            nu = nu(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("visc"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, visc);
-            visc = visc(tetraIds);
+            visc = visc(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("plasticity"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, plasticity);
-            plasticity = plasticity(tetraIds);
+            plasticity = plasticity(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("grRate1"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, grRate1);
-            grRate1 = grRate1(tetraIds);
+            grRate1 = grRate1(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("grRate2"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, grRate2);
-            grRate2 = grRate2(tetraIds);
+            grRate2 = grRate2(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("grRate3"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, grRate3);
-            grRate3 = grRate3(tetraIds);
+            grRate3 = grRate3(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("k1"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, k1);
-            k1 = k1(tetraIds);
+            k1 = k1(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("k2"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, k2);
-            k2 = k2(tetraIds);
+            k2 = k2(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetPointData()->GetArray("fiberTetra1"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, fiberTetra1);
@@ -1709,15 +1758,15 @@ namespace LagSol {
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("CellEntityIds"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, layer);
-            layer = layer(tetraIds);
+            layer = layer(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("cell_scalars"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, layer);
-            layer = layer(tetraIds);
+            layer = layer(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("layer"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, layer);
-            layer = layer(tetraIds);
+            layer = layer(tetraIds).eval();
         }
         if (vtkDataArray* arr = data->GetCellData()->GetArray("Fg"); arr != nullptr) {
             copy_from_vtk_to_eigen(arr, Fg);
@@ -1803,118 +1852,4 @@ namespace LagSol {
         writer->SetFileTypeToBinary();
         writer->Write();
     }
-
-    void Mesh::save_surface(const std::string &filename, const thrust::host_vector<Vector> &new_pos) {
-        std::ofstream file;
-//            file.open(filename, std::ios::out | std::ios::binary);
-        file.open(filename);
-        if (!file.is_open()) {
-            std::cout << "File %s writing error!" <<filename<< std::endl;
-            return;
-        }
-        file << "# vtk DataFile Version 2.0" << std::endl;
-        file << "box, Created by LagSol" << std::endl;
-        file << "ASCII" << std::endl;
-        file << "DATASET UNSTRUCTURED_GRID" << std::endl;
-        file << "POINTS " << nver << " float" << std::endl;
-        for (int i = 0; i < nver; i++)
-            file << (float)new_pos[i][0] << " " << (float)new_pos[i][1] << " " << (float)new_pos[i][2] << std::endl;
-        file << "CELLS " << ntri << " " << ntri * 4 << std::endl;
-        for (int i = 0; i < ntri; i++)
-            file << "3 " << tri(i, 0) << " " << tri(i, 1) << " " << tri(i, 2) << std::endl;
-        file << "CELL_TYPES " << ntri << std::endl;
-        for (int i = 0; i < ntri; i++)
-            file << "5" << std::endl;
-
-        file << "CELL_DATA " << ntri << std::endl;
-        file << "SCALARS layer int 1" << std::endl;
-        file << "LOOKUP_TABLE default" << std::endl;
-        for (int i = 0; i < ntri; i++) {
-            file << layer(boundaryTetIds[i]) << std::endl;
-        }
-//            file << "TENSORS stress float" << std::endl;
-//            for (int i = 0; i < ntet; i++) {
-//                file << (float)stress[i].xx << " " << (float)stress[i].xy << " " << (float)stress[i].xz << std::endl <<
-//                        (float)stress[i].yx << " " << (float)stress[i].yy << " " << (float)stress[i].yz << std::endl <<
-//                        (float)stress[i].zx << " " << (float)stress[i].zy << " " << (float)stress[i].zz << std::endl << std::endl;
-//            }
-        file.close();
-    }
-/*
-    void Mesh::save_surface(const std::string &filename, const VectorArrayEigen &new_pos, const VectorArrayEigen &vel) {
-        std::ofstream file;
-//            file.open(filename, std::ios::out | std::ios::binary);
-        file.open(filename);
-        if (!file.is_open()) {
-            std::cout << "File %s writing error!" <<filename<< std::endl;
-            return;
-        }
-        file << "# vtk DataFile Version 2.0" << std::endl;
-        file << "box, Created by LagSol" << std::endl;
-        file << "ASCII" << std::endl;
-        file << "DATASET UNSTRUCTURED_GRID" << std::endl;
-        file << "POINTS " << nnbd << " float" << std::endl;
-        for (int i = 0; i < nnbd; i++)
-            file << (float)new_pos[i].x << " " << (float)new_pos[i].y << " " << (float)new_pos[i].z << std::endl;
-        file << "CELLS " << ntri << " " << ntri * 4 << std::endl;
-        for (int i = 0; i < ntri; i++)
-            file << "3 " << tri(i, 0) << " " << tri(i, 1) << " " << tri(i, 2) << std::endl;
-        file << "CELL_TYPES " << ntri << std::endl;
-        for (int i = 0; i < ntri; i++)
-            file << "5" << std::endl;
-
-        file << "CELL_DATA " << ntri << std::endl;
-        file << "SCALARS layer int 1" << std::endl;
-        file << "LOOKUP_TABLE default" << std::endl;
-        for (int i = 0; i < ntri; i++) {
-            file << tetTag(boundaryTetIds[i]) << std::endl;
-        }
-//            file << "TENSORS stress float" << std::endl;
-//            for (int i = 0; i < ntet; i++) {
-//                file << (float)stress[i].xx << " " << (float)stress[i].xy << " " << (float)stress[i].xz << std::endl <<
-//                        (float)stress[i].yx << " " << (float)stress[i].yy << " " << (float)stress[i].yz << std::endl <<
-//                        (float)stress[i].zx << " " << (float)stress[i].zy << " " << (float)stress[i].zz << std::endl << std::endl;
-//            }
-
-        file << "POINT_DATA " << ntri << std::endl;
-        file << "VECTORS velocity float" << std::endl;
-        file << "LOOKUP_TABLE default" << std::endl;
-        for (int i = 0; i < nnbd; i++) {
-            file << tetTag(boundaryTetIds[i]) << std::endl;
-        }
-        file.close();
-    }
-*/
-
-/*
-    bool writeOBJ(const std::string str,
-                  const Eigen::MatrixXd& V,
-                  const Eigen::MatrixXd& C,
-                  const Eigen::MatrixXi& F) {
-        using namespace std;
-        using namespace Eigen;
-        assert(V.cols() == 3 && "V should have 3 columns");
-        assert(C.cols() == 3 && "C should have 3 columns");
-        assert(C.rows() == V.rows() && "C and V should have the same number of rows");
-        ofstream s(str);
-        if(!s.is_open())
-        {
-            fprintf(stderr,"IOError: writeOBJ() could not open %s\n",str.c_str());
-            return false;
-        }
-
-        MatrixX<double> VC(V.rows(),6);
-
-        VC.col(0) = V.col(0);
-        VC.col(1) = V.col(1);
-        VC.col(2) = V.col(2);
-        VC.col(3) = C.col(0);
-        VC.col(4) = C.col(1);
-        VC.col(5) = C.col(2);
-        s<<
-         VC.format(IOFormat(StreamPrecision,DontAlignCols," ","\n","v ","","","\n"))<<
-         (F.array()+1).format(IOFormat(FullPrecision,DontAlignCols," ","\n","f ","","","\n"));
-        return true;
-    }
-    */
 }

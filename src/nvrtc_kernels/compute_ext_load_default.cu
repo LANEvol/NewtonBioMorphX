@@ -37,62 +37,76 @@ __global__ void compute_ext_load_nvrtc(DeviceDataPtr *data, Float t, Float tol, 
         Float Yc = data->posRef[t3][1];
         Float Zc = data->posRef[t3][2];
 
+        Float X = (Xa + Xb + Xc) * 1.0/3.0;
+        Float Y = (Ya + Yb + Yc) * 1.0/3.0;
+        Float Z = (Za + Zb + Zc) * 1.0/3.0;
+        
         /* default *///Float hapex;
 
         /* default *///Float Ra;
         /* default *///Float Rb;
         /* default *///Float Rc;
+        /* default *///Float Na;
+        /* default *///Float Nb;
+        /* default *///Float Nc;
+        
 
-        /* default */Float xMin = gP.posRefMin[0];
-        /* default */Float xMax = gP.posRefMax[0];
-        /* default */Float yMin = gP.posRefMin[1];
-        /* default */Float yMax = gP.posRefMax[1];
-        /* default */Float zMin = gP.posRefMin[2];
-        /* default */Float zMax = gP.posRefMax[2];
+        /* default *///Float XMin;
+        /* default *///Float XMax;
+        /* default *///Float YMin;
+        /* default *///Float YMax;
+        /* default *///Float ZMin;
+        /* default *///Float ZMax;
+        /* default *///Float RMin;
+        /* default *///Float RMax;
+        /* default *///Float NMin;
+        /* default *///Float NMax;
 
-        Float X = (Xa + Xb + Xc) * 1.0/3.0;
-        Float Y = (Ya + Yb + Yc) * 1.0/3.0;
-        Float Z = (Za + Zb + Zc) * 1.0/3.0;
 
+        /* default *///Float RMina;
+        /* default *///Float RMinb;
+        /* default *///Float RMinc;
+        /* default *///Float RMaxa;
+        /* default *///Float RMaxb;
+        /* default *///Float RMaxc;
 
-        /* default *///Float rMin;
-        /* default *///Float rMina;
-        /* default *///Float rMinb;
-        /* default *///Float rMinc;
-        /* default *///Float rMax;
-        /* default *///Float rMaxa;
-        /* default *///Float rMaxb;
-        /* default *///Float rMaxc;
 
         /* default *///Float Phi;
         /* default *///Float Theta;
         /* default *///Float R;
+        /* default *///Float N;
+        /* default *///Float S;
 
-
-        const unsigned int xMinState = (fabs(Xa - xMin) < tol) && (fabs(Xb - xMin) < tol) && (fabs(Xc - xMin) < tol);
-        const unsigned int xMaxState = (fabs(Xa - xMax) < tol) && (fabs(Xb - xMax) < tol) && (fabs(Xc - xMax) < tol);
-        const unsigned int yMinState = (fabs(Ya - yMin) < tol) && (fabs(Yb - yMin) < tol) && (fabs(Yc - yMin) < tol);
-        const unsigned int yMaxState = (fabs(Ya - yMax) < tol) && (fabs(Yb - yMax) < tol) && (fabs(Yc - yMax) < tol);
-        const unsigned int zMinState = (fabs(Za - zMin) < tol) && (fabs(Zb - zMin) < tol) && (fabs(Zc - zMin) < tol);
-        const unsigned int zMaxState = (fabs(Za - zMax) < tol) && (fabs(Zb - zMax) < tol) && (fabs(Zc - zMax) < tol);
-        /* default */const unsigned int rMinStateT = 0;
-        /* default */const unsigned int rMaxStateT = 0;
+        /* default */const unsigned int XMinStateT = 0;
+	    /* default */const unsigned int XMaxStateT = 0;
+        /* default */const unsigned int YMinStateT = 0;
+        /* default */const unsigned int YMaxStateT = 0;
+        /* default */const unsigned int ZMinStateT = 0;
+        /* default */const unsigned int ZMaxStateT = 0;
+        /* default */const unsigned int RMinStateT = 0;
+        /* default */const unsigned int RMaxStateT = 0;
+        /* default */const unsigned int NMinStateT = 0;
+        /* default */const unsigned int NMaxStateT = 0;
 
         data->extLoad[i] = Vector(0.0);
-        if (xMinState || xMaxState || yMinState || yMaxState || zMinState || zMaxState || rMinStateT || rMaxStateT) {
-            /* default */// data->extLoad[i] += xMinState * Vector(0.0);
-            /* default */// data->extLoad[i] += xMaxState * Vector(0.0);
-            /* default */// data->extLoad[i] += yMinState * Vector(0.0);
-            /* default */// data->extLoad[i] += yMaxState * Vector(0.0);
-            /* default */// data->extLoad[i] += zMinState * Vector(0.0);
-            /* default */// data->extLoad[i] += zMaxState * Vector(0.0);
-            /* default */// data->extLoad[i] += rMinStateT * Vector(0.0);
-            /* default */// data->extLoad[i] += rMinStateT * Vector(0.0);
+        
+        if (XMinStateT || XMaxStateT || YMinStateT || YMaxStateT || ZMinStateT || ZMaxStateT || RMinStateT || RMaxStateT || NMinStateT || NMaxStateT) {
+            /* default *///data->extLoad[i] += XMinStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += XMaxStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += YMinStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += YMaxStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += ZMinStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += ZMaxStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += RMinStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += RMaxStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += NMinStateT * Vector(0.0);
+            /* default *///data->extLoad[i] += NMaxStateT * Vector(0.0);
         }
 
         if (data->extLoad[i].mag2() > 0.0) {
             Vector area = (data->posRef[t2] - data->posRef[t1]).cross(data->posRef[t3] - data->posRef[t1]) * 0.5;
-            Vector fn = data->extLoad[i] * area.mag() * (1.0 / 3.0);
+            /* default *///Tensor RmatTri;
+            Vector fn = RmatTri.dot(data->extLoad[i]) * area.mag() * (1.0 / 3.0);
             atomicAdd(&(data->force[t1][0]),fn[0]);
             atomicAdd(&(data->force[t1][1]),fn[1]);
             atomicAdd(&(data->force[t1][2]),fn[2]);

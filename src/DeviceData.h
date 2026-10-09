@@ -24,7 +24,7 @@
 namespace LagSol {
     struct DeviceData {
 
-        Encoder32* encoder;
+        Encoder32* encoder = nullptr;
 
         VectorArrayDev pos;
         VectorArrayDev posRef;
@@ -72,13 +72,13 @@ namespace LagSol {
         CharArrayDev bidsZMin;
 
         VectorArrayDev extLoad;
-        VectorArrayDev tempVec2;
-        VectorArrayDev tempVec3;
-        VectorArrayDev tempVec4;
-        TensorArrayDev tempTens1;
-        TensorArrayDev tempTens2;
-        TensorArrayDev tempTens3;
-        TensorArrayDev tempTens4;
+        // VectorArrayDev tempVec2;
+        // VectorArrayDev tempVec3;
+        // VectorArrayDev tempVec4;
+        // TensorArrayDev tempTens1;
+        // TensorArrayDev tempTens2;
+        // TensorArrayDev tempTens3;
+        // TensorArrayDev tempTens4;
 
         VectorArrayDev vel;
         VectorArrayDev force;
@@ -115,8 +115,16 @@ namespace LagSol {
         UIntArrayDev ngb_size;
         UIntArrayDev ngb_offset;
 
+        DeviceData() = default;
+        // Owns 'encoder': a copy would delete it twice.
+        DeviceData(const DeviceData&) = delete;
+        DeviceData& operator=(const DeviceData&) = delete;
+
         void init(Mesh& mesh);
         void set(DeviceDataPtrManaged& devicePtr);
+        // Frees all device memory now. Call before main() returns: 'data' is a global, and its
+        // destructor would otherwise run after the CUDA runtime has shut down.
+        void release();
         ~DeviceData();
     };
 }
