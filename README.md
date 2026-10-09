@@ -69,7 +69,7 @@ chmod +x NewtonBioMorphX-<version>-x86_64.AppImage
 
 ## Building from source
 
-NewtonBioMorphX is built with CMake (3.21 or newer) on Windows (Visual Studio 2022 + vcpkg) and on Linux (Docker). See [Compiling source code](docs/User_Manual.md#3-compiling-source-code) in the manual.
+NewtonBioMorphX is built with CMake (3.21 or newer) on Windows (Visual Studio 2022 + vcpkg) and on Linux (Docker). See [Compiling source code](docs/User_Manual.md#21-compiling-source-code) in the manual.
 
 ## Citation
 
