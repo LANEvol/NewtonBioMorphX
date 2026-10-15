@@ -7,14 +7,17 @@
 
 **A GPU-accelerated framework for mechanical morphogenesis**
 
-NewtonBioMorphX is an open-source application for simulating the tissue-scale mechanics of morphogenesis. Directly from a graphical interface, you can generate geometries, define material properties, prescribe growth, add anisotropic fiber reinforcement and active forces, visualize results in real time, and export simulations for further analysis, without editing or recompiling any code.
+**NewtonBioMorphX** is an open-source application for simulating the tissue-scale mechanics of morphogenesis. From a single graphical interface, you can generate geometries, define material properties, prescribe growth, add anisotropic fiber reinforcement and active forces, visualize results in real time, and export simulations for further analysis, all without editing or recompiling any code.
 
-It is designed for biologists and physicists alike, and is also a powerful teaching tool for exploring the principles of mechanical patterning hands-on.
+Designed for both biologists and physicists, it also serves as a hands-on teaching tool for exploring the principles of mechanical patterning.
 
-<div align="center">
-<img src="docs/images/main_interface.png" alt="NewtonBioMorphX user interface" width="900">
-<p><em>The control panel (left) and the real-time rendering window (right).</em></p>
-</div>
+Click the image below to watch a short video showcasing the main features of **NewtonBioMorphX**.
+
+<p align="center">
+<a href="https://www.youtube.com/watch?v=B_9mxt3hrTU" target="_blank" rel="noopener noreferrer">
+  <img src="https://img.youtube.com/vi/B_9mxt3hrTU/maxresdefault.jpg" width="300" alt="Watch the video">
+</a>
+</p>
 
 ## Features
 
@@ -35,10 +38,10 @@ Twelve ready-to-run presets are included. A few of them:
 
 <table>
 <tr>
-<td align="center"><img src="docs/images/preset_1.png" width="250"><br><sub>Elastic box with tangential growth</sub></td>
-<td align="center"><img src="docs/images/preset_5.png" width="250"><br><sub>Tube with growth and collagen fibers</sub></td>
-<td align="center"><img src="docs/images/preset_8.png" width="250"><br><sub>Two-layer sphere with orthogonal growth</sub></td>
-<td align="center"><img src="docs/images/preset_12.png" width="250"><br><sub>Elastic torus with fibers</sub></td>
+<td align="center" valign="top"><img src="docs/images/preset_1.png" width="250"><br><sub>Elastic box with tangential growth</sub></td>
+<td align="center" valign="top"><img src="docs/images/preset_5.png" width="250"><br><sub>Tube with growth and collagen fibers</sub></td>
+<td align="center" valign="top"><img src="docs/images/preset_8.png" width="250"><br><sub>Two-layer sphere with orthogonal growth</sub></td>
+<td align="center" valign="top"><img src="docs/images/preset_12.png" width="250"><br><sub>Elastic torus with fibers</sub></td>
 </tr>
 </table>
 
@@ -75,7 +78,7 @@ NewtonBioMorphX is built with CMake (3.21 or newer) on Windows (Visual Studio 20
 
 If you use NewtonBioMorphX in your research, please cite:
 
-> Ebrahim Jahanbakhsh, Michel C. Milinkovitch, NewtonBioMorphX: a computational framework for simulating tissue-scale mechanics of morphogenesis, Computer Physics Communications (2026), https://doi.org/10.1016/j.cpc.2026.110452.
+> Ebrahim Jahanbakhsh, Michel C. Milinkovitch, NewtonBioMorphX: A computational framework for simulating tissue-scale mechanics of morphogenesis, Computer Physics Communications (2026), https://doi.org/10.1016/j.cpc.2026.110452.
 
 ## License
 
