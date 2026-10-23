@@ -248,8 +248,8 @@ void getAverageAndSD(float* avgSTD, const float *data, int N) {
     	avgSTD[1] = NAN;
     }
     if (wSum<2) {
-    	avgSTD[1] = NAN;        
-    }	    
+    	avgSTD[1] = NAN;
+    }
 }
 
 // Disabled regions use ImGui::BeginDisabled(cond) / ImGui::EndDisabled().
@@ -550,6 +550,13 @@ ScalarArrayEigen device_to_vis_data_tet_section(const std::any &selectedData, in
 }
 
 static std::string exec_path;
+
+// Outer frame of the menu window (screen pixels), published by draw_menu so draw_mesh can place the viewer next to it
+struct MenuGeometry { int right, clientTop, clientHeight, workRight; float dpiScale; };   // right = outer right edge
+static std::mutex menuGeomMutex;
+static std::condition_variable menuGeomCv;
+static bool menuGeomReady = false;
+static MenuGeometry menuGeom;
 static std::string expressionHelpInfoConst("Define equation by:"
                                            "\nalgebraic operators: + - / *"
                                            "\nvector [v₁v₂v₃]ᵀ: Vector(v₁,v₂,v₃)"
@@ -781,11 +788,27 @@ int main(int argc, char** argv) {
         viewer.callback_init = [&](igl::opengl::glfw::Viewer& v) {
             GLFWwindow* win = v.window;
 
-            // Set window position
-            glfwSetWindowPos(win, 640 + 100, 150+37);
+            MenuGeometry g{};
+            bool haveMenu;
+            {
+                std::unique_lock<std::mutex> lock(menuGeomMutex);
+                haveMenu = menuGeomCv.wait_for(lock, std::chrono::seconds(5), [] { return menuGeomReady; });
+                g = menuGeom;
+            }
 
-            // Set window size
-            glfwSetWindowSize(win, 1280, 720 * 3/2);
+            if (haveMenu) {
+                // glfwSetWindowPos/Size act on the client area; match the menu's client top/height so both windows
+                // are the same size, and place the outer left edge right after the menu's outer right edge
+                int fl = 0, ft = 0, fr = 0, fb = 0;
+                glfwGetWindowFrameSize(win, &fl, &ft, &fr, &fb);
+                int x = g.right + fl;
+                int w = std::min(int(1280 * g.dpiScale), g.workRight - x - fr);
+                glfwSetWindowPos(win, x, g.clientTop);
+                glfwSetWindowSize(win, w, g.clientHeight);
+            } else {
+                glfwSetWindowPos(win, 640 + 100, 150+37);
+                glfwSetWindowSize(win, 1280, 720 * 3/2);
+            }
 
             return false; // return false = continue normal initialization
         };
@@ -1369,6 +1392,10 @@ int main(int argc, char** argv) {
         // Setup SDL
         // (Some versions of SDL before <2.0.10 appears to have performance/stalling issues on a minority of Windows systems,
         // depending on whether SDL_INIT_GAMECONTROLLER is enabled or disabled.. updating to latest version of SDL is recommended!)
+#ifdef _WIN32
+        // GLFW is per-monitor DPI aware; without this Windows scales the SDL window and the two use different coordinates
+        SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
+#endif
         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
             printf("Error: %s\n", SDL_GetError());
             return;
@@ -1397,7 +1424,47 @@ int main(int argc, char** argv) {
         SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
         SDL_WindowFlags window_flags = (SDL_WindowFlags) (SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
         // SDL_Window *window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,640, 720, window_flags);
-        SDL_Window *window = SDL_CreateWindow("NewtonBioMorphX", 100, 150, 640, 720 * 3/2, window_flags);
+        float dpiScale = 1.0f;
+#ifdef _WIN32
+        float ddpi;
+        if (SDL_GetDisplayDPI(0, &ddpi, nullptr, nullptr) == 0 && ddpi > 0) dpiScale = ddpi / 96.0f;
+#endif
+        SDL_Rect work{0, 0, 1920, 1080};
+        SDL_GetDisplayUsableBounds(0, &work);
+
+        // Create hidden first so the decoration sizes are known before placing it
+        SDL_Window *window = SDL_CreateWindow("NewtonBioMorphX", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                              int(640 * dpiScale), int(720 * 3/2 * dpiScale), (SDL_WindowFlags) (window_flags | SDL_WINDOW_HIDDEN));
+        int bTop = 0, bLeft = 0, bBottom = 0, bRight = 0;
+        SDL_GetWindowBordersSize(window, &bTop, &bLeft, &bBottom, &bRight);
+        if (bTop == 0) bTop = 37;   // X11 reports zeros before the window is mapped; only used as an estimate here
+        {
+            const int margin = int(20 * dpiScale);
+            int outerX = work.x + margin, outerY = work.y + margin;
+            int menuW = int(640 * dpiScale);
+            int menuH = std::min(int(720 * 3/2 * dpiScale), work.h - 2 * margin - bTop - bBottom);
+            SDL_SetWindowSize(window, menuW, menuH);
+            SDL_SetWindowPosition(window, outerX + bLeft, outerY + bTop);   // SDL positions the client area
+        }
+        SDL_ShowWindow(window);
+        {
+            // Measure the actual client area once mapped (the WM may have adjusted it) and publish it for the viewer
+            Uint32 t0 = SDL_GetTicks();
+            do {
+                SDL_PumpEvents();
+                bTop = 0;
+                if (SDL_GetWindowBordersSize(window, &bTop, nullptr, nullptr, &bRight) == 0 && bTop > 0) break;
+                SDL_Delay(10);
+            } while (SDL_GetTicks() - t0 < 300);
+            int cx, cy, cw, ch;
+            SDL_GetWindowPosition(window, &cx, &cy);
+            SDL_GetWindowSize(window, &cw, &ch);
+
+            std::lock_guard<std::mutex> lock(menuGeomMutex);
+            menuGeom = {cx + cw + bRight, cy, ch, work.x + work.w, dpiScale};
+            menuGeomReady = true;
+        }
+        menuGeomCv.notify_all();
         SDL_GLContext gl_context = SDL_GL_CreateContext(window);
         SDL_GL_MakeCurrent(window, gl_context);
         SDL_GL_SetSwapInterval(1); // Enable vsync
@@ -1438,13 +1505,24 @@ int main(int argc, char** argv) {
         // io.Fonts->Build();
 
         static const ImWchar baseRanges[] = { 0x0020, 0x00FF, 0x0370, 0x03FF, 0 };
-        static const ImWchar subRanges[]  = { 0x1D00, 0x1D7F, 0x2070, 0x209F, 0x2C60, 0x2C7F, 0 };
+        // sub/superscripts (₁, ᵀ), punctuation (‑), arrows (→) and math operators (∩) come from DejaVu
+        static const ImWchar subRanges[]  = { 0x1D00, 0x1D7F, 0x2010, 0x2027, 0x2070, 0x209F, 0x2190, 0x21FF,
+                                              0x2200, 0x22FF, 0x2C60, 0x2C7F, 0 };
 
-        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/LiberationMono-Regular.ttf")).c_str(), 20.0f, nullptr, baseRanges);
+        // A missing font file is silently replaced by '?' glyphs, so report it
+        auto fontPath = [&](const char* name) {
+            std::filesystem::path p = std::filesystem::path(exec_path) / ".." / "share" / "fonts" / name;
+            if (!std::filesystem::exists(p))
+                fprintf(stderr, "Warning: font not found: %s (non-ASCII symbols will show as '?')\n", p.string().c_str());
+            return p.string();
+        };
+
+        io.Fonts->AddFontFromFileTTF(fontPath("LiberationMono-Regular.ttf").c_str(), 20.0f * dpiScale, nullptr, baseRanges);
 
         ImFontConfig cfg;
         cfg.MergeMode = true;                      // adds glyphs to the previous font
-        io.Fonts->AddFontFromFileTTF((exec_path+std::string("/../share/fonts/DejaVuSansMono.ttf")).c_str(), 20.0f, &cfg, subRanges);
+        io.Fonts->AddFontFromFileTTF(fontPath("DejaVuSansMono.ttf").c_str(), 20.0f * dpiScale, &cfg, subRanges);
+        ImGui::GetStyle().ScaleAllSizes(dpiScale);
 
         io.Fonts->Build();
 

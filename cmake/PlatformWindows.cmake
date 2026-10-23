@@ -42,7 +42,9 @@ macro(nbmx_platform_target)
     if(MSVC)
         target_compile_options(${PROJECT_NAME} PRIVATE
                 $<$<COMPILE_LANGUAGE:CXX>:/bigobj>
-                $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/bigobj>)
+                $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
+                $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/bigobj>
+                $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/utf-8>)   # /utf-8: keep UTF-8 string literals (₁, ᵀ, θ, Δ, °) intact
     endif()
 
     # Icon: resource name GLFW_ICON -> Explorer/taskbar/shortcuts show it for the .exe,
