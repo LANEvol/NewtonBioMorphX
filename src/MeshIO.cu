@@ -1795,9 +1795,10 @@ namespace LagSol {
         std::ofstream file;
         file.open(filename, std::ios::binary);
         if (!file.is_open()) {
-            std::cout << "File %s writing error!" <<filename<< std::endl;
+            std::cerr << "Cannot write " << filename << std::endl;
             return;
         }
+        file.close();   // only a writability check; VTK opens the file itself
         vtkSmartPointer<vtkGenericDataObjectWriter> writer = vtkSmartPointer<vtkGenericDataObjectWriter>::New();
         writer->SetFileName(filename.c_str());
 

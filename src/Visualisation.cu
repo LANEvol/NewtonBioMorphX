@@ -677,7 +677,12 @@ namespace LagSol {
         if (!fmt) { std::cerr << "VideoWriter: no muxer for " << filename << "\n"; return false; }
 
         codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-        if (!codec) { std::cerr << "VideoWriter: no H.264 encoder (FFmpeg built without x264)\n"; return false; }
+        if (!codec) {
+            // FFmpeg built without x264 (e.g. vcpkg's default features): MPEG-4 Part 2 is always built in
+            std::cerr << "VideoWriter: no H.264 encoder, falling back to MPEG-4\n";
+            codec = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+        }
+        if (!codec) { std::cerr << "VideoWriter: no usable video encoder\n"; return false; }
 
         stream = avformat_new_stream(fmt, codec);
         if (!stream) return false;
@@ -695,8 +700,13 @@ namespace LagSol {
 
         stream->time_base = ctx->time_base;
 
-        av_opt_set(ctx->priv_data, "preset", "slow", 0);
-        av_opt_set(ctx->priv_data, "crf", "18", 0);
+        if (codec->id == AV_CODEC_ID_H264) {
+            av_opt_set(ctx->priv_data, "preset", "slow", 0);
+            av_opt_set(ctx->priv_data, "crf", "18", 0);
+        } else {
+            ctx->flags |= AV_CODEC_FLAG_QSCALE;           // constant quality, roughly comparable to crf 18
+            ctx->global_quality = FF_QP2LAMBDA * 3;
+        }
 
         char err[AV_ERROR_MAX_STRING_SIZE];
         ret = avcodec_open2(ctx, codec, nullptr);
@@ -722,6 +732,7 @@ namespace LagSol {
             std::cerr << "VideoWriter: write_header failed: " << err << "\n";
             return false;
         }
+        headerWritten = true;
 
         sws = sws_getContext(width, height, AV_PIX_FMT_RGBA,
                              ctx->width, ctx->height, AV_PIX_FMT_YUV420P,
@@ -737,7 +748,7 @@ namespace LagSol {
     // Cleanup + flush
     // -----------------------------
     void VideoWriter::cleanup() {
-        if (!fmt || !ctx)
+        if (!fmt || !ctx || !headerWritten)     // init() failed: nothing to flush, no trailer to write
             goto free_only;
 
         // Flush encoder
@@ -777,6 +788,7 @@ namespace LagSol {
 
         fmt = nullptr;
         ctx = nullptr;
+        headerWritten = false;
         codec = nullptr;
         stream = nullptr;
         sws = nullptr;

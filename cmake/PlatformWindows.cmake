@@ -37,7 +37,8 @@ macro(nbmx_platform_target)
             $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
             ${FFMPEG_LIBRARIES}
             "${GMSH_ROOT}/lib/gmsh.dll.lib"
-            CUDA::nvrtc)                     # nvrtc64_*.dll (+ nvrtc-builtins, see below)
+            CUDA::nvrtc                      # nvrtc64_*.dll (+ nvrtc-builtins, see below)
+            shell32)                         # SHGetFolderPath (Documents folder for exported files)
 
     if(MSVC)
         target_compile_options(${PROJECT_NAME} PRIVATE

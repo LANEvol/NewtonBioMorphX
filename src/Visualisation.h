@@ -67,6 +67,7 @@ namespace LagSol {
 #endif
         AVStream* stream = nullptr;
         SwsContext* sws = nullptr;
+        bool headerWritten = false;
         AVFrame* frame = nullptr;
 
         bool init();

@@ -208,7 +208,7 @@ namespace LagSol {
     int nFibers = 0;
     Float globalTime = 0;
     std::string inputMeshFileName = "";
-    std::string outputFileName = "output.vtk";
+    std::string outputFileName = "output";
     BoxDims boxDims;
     DiskDims diskDims;
     TubeDims tubeDims;

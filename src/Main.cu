@@ -49,6 +49,7 @@ namespace fs = std::filesystem;
 
 #ifdef _WIN32
 #include <windows.h>
+#include <shlobj.h>
 #else
 #include <unistd.h>
 #endif
@@ -70,6 +71,33 @@ std::filesystem::path getExecutableDir() {
 #else
     return std::filesystem::canonical("/proc/self/exe").parent_path();
 #endif
+}
+
+// Non-throwing: on failure (e.g. the file couldn't be written) fs::permissions would otherwise throw and abort.
+void makeFileShared(const std::string& fname) {
+    std::error_code ec;
+    fs::permissions(fname, fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all, ec);
+}
+
+// Base path (no extension) for exported frames and videos. A relative outputFileName is placed
+// in Documents\NewtonBioMorphX on Windows, since the working directory there is usually the
+// read-only install folder; elsewhere it stays relative to the working directory.
+std::string outputBasePath() {
+    fs::path p(outputFileName.empty() ? "output" : outputFileName);
+    const std::string ext = p.extension().string();
+    if (ext == ".vtk" || ext == ".ply" || ext == ".mp4")
+        p.replace_extension();
+#ifdef _WIN32
+    if (p.is_relative()) {
+        char docs[MAX_PATH];
+        if (SUCCEEDED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, docs)))
+            p = fs::path(docs) / "NewtonBioMorphX" / p;
+    }
+#endif
+    std::error_code ec;
+    if (p.has_parent_path())
+        fs::create_directories(p.parent_path(), ec);
+    return p.string();
 }
 //std::tuple<std::string, std::any, int> varName{"aaaa",&data.lamInt,-1};
 std::vector<std::tuple<std::string, std::any, int>> varNamesColor = {
@@ -771,9 +799,9 @@ int main(int argc, char** argv) {
                     _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
                     cudaDeviceSynchronize();
 
-                    std::string fname = outputFileName + ".vtk";
+                    std::string fname = outputBasePath() + ".vtk";
                     mesh.save_binary(fname, data.tet, data.pos, dataToSave);
-                    fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                    makeFileShared(fname);
                     std::cout<<"\t# "<<fname<<" is saved." <<std::endl;
                 }
             }
@@ -1213,23 +1241,23 @@ int main(int argc, char** argv) {
                     if (!isSimDiverged()) {
                         if (savePLY) {
                             std::ostringstream ss;
-                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
+                            ss << outputBasePath() << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
                             std::string tempOutput = ss.str();
                             thrust::host_vector<Vector> tempPos(data.pos);
                             Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                             Eigen::MatrixXf visPosA(visPos.cast<float>());
                             writePLY(tempOutput,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
-                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            makeFileShared(tempOutput);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                         if (saveVTK) {
                             _LAUNCH_NVRTC(mesh.ntet, 128, compute_for_vis_nvrtc.kernel, {&dataPtr, &globalTime, &mesh.ntet});
                             cudaDeviceSynchronize();
                             std::ostringstream ss;
-                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
+                            ss << outputBasePath() << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
                             std::string tempOutput = ss.str();
                             mesh.save_binary(tempOutput, data.tet, data.pos, dataToSave);
-                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            makeFileShared(tempOutput);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                     }
@@ -1243,9 +1271,14 @@ int main(int argc, char** argv) {
                     glfwGetFramebufferSize(viewer.window, &gWWidth, &gWHeight);
                     gWWidth = (gWWidth / 2) * 2;
                     gWHeight = (gWHeight / 2) * 2;
-                    videoWriter = new VideoWriter((outputFileName+"_"+std::to_string(videoCounter++)+".mp4"), gWWidth, gWHeight, 30);
-                    if (!videoWriter->init())
+                    videoWriter = new VideoWriter((outputBasePath()+"_"+std::to_string(videoCounter++)+".mp4"), gWWidth, gWHeight, 30);
+                    if (videoWriter->init()) {
+                        std::cout<<"\t# recording "<<videoWriter->filename<<std::endl;
+                    } else {
+                        delete videoWriter;
                         videoWriter = nullptr;
+                        saveMP4 = false;    // don't retry (and bump videoCounter) every frame
+                    }
                 }
                 if (videoWriter != nullptr) {
                     char fname[16];
@@ -1357,13 +1390,13 @@ int main(int argc, char** argv) {
                     if (!isSimDiverged()) {
                         if (savePLY) {
                             std::ostringstream ss;
-                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
+                            ss << outputBasePath() << '_' << std::setw(4) << std::setfill('0') << frames << ".ply";
                             std::string tempOutput = ss.str();
                             thrust::host_vector<Vector> tempPos(data.pos);
                             Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                             Eigen::MatrixXf visPosA(visPos.cast<float>());
                             writePLY(tempOutput,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
-                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            makeFileShared(tempOutput);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                         if (saveVTK) {
@@ -1371,10 +1404,10 @@ int main(int argc, char** argv) {
                             cudaDeviceSynchronize();
 
                             std::ostringstream ss;
-                            ss << outputFileName << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
+                            ss << outputBasePath() << '_' << std::setw(4) << std::setfill('0') << frames << ".vtk";
                             std::string tempOutput = ss.str();
                             mesh.save_binary(tempOutput, data.tet, data.pos, dataToSave);
-                            fs::permissions(tempOutput,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                            makeFileShared(tempOutput);
                             std::cout<<"\t# "<<tempOutput<<" is saved." <<std::endl;
                         }
                     }
@@ -2573,7 +2606,7 @@ int main(int argc, char** argv) {
                     Eigen::Map<VectorArrayEigen> visPos(&tempPos[0][0], mesh.nver, 3);
                     Eigen::MatrixXf visPosA(visPos.cast<float>());
                     writePLY(fname,visPosA(mesh.boundaryNodeIds, Eigen::placeholders::all).cast<double>() ,mesh.tri_mapped.matrix());
-                    fs::permissions(fname,fs::perms::owner_all | fs::perms::group_all | fs::perms::others_all);
+                    makeFileShared(fname);
                 }
             }
 
